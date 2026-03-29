@@ -86,13 +86,13 @@ function AngleGauge({ rawValue, maxRaw, label, color = '#a78bfa' }: {
 }
 
 /* ── Horizontal bar ───────────────────────────────────────────────────── */
-function Bar({ value, min, max, color, label, unit }: {
-  value: number; min: number; max: number; color: string; label: string; unit: string
+function Bar({ value, min, max, color, label, unit, valueWidth = 'w-16' }: {
+  value: number; min: number; max: number; color: string; label: string; unit: string; valueWidth?: string
 }) {
   const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))
   return (
     <div className="flex items-center gap-2 text-xs">
-      <span className="text-slate-500 w-4 text-right">{label}</span>
+      <span className="text-slate-500 w-4 text-right flex-shrink-0">{label}</span>
       <div className="flex-1 bg-slate-800 rounded-full h-2 relative overflow-hidden">
         {/* Zero marker for bipolar bars */}
         {min < 0 && (
@@ -102,7 +102,7 @@ function Bar({ value, min, max, color, label, unit }: {
         <div className="absolute top-0 left-0 h-full rounded-full transition-all duration-100"
           style={{ width: `${pct}%`, backgroundColor: color }} />
       </div>
-      <span className="font-mono text-slate-300 w-16 text-right">{value.toFixed(0)} {unit}</span>
+      <span className={`font-mono text-slate-300 text-right flex-shrink-0 ${valueWidth}`}>{value.toFixed(0)} {unit}</span>
     </div>
   )
 }
@@ -235,16 +235,16 @@ export function DevSensorTab() {
           <OrientationCube ax={d.ax} ay={d.ay} az={d.az} />
 
           {/* Bars */}
-          <div className="flex-1 space-y-2">
+          <div className="flex-1 min-w-0 space-y-2">
             <div className="text-xs text-slate-500 font-semibold uppercase tracking-wide mb-1">Accelerometer</div>
             <Bar value={d.ax} min={-2000} max={2000} color="#38bdf8" label="X" unit="mg" />
             <Bar value={d.ay} min={-2000} max={2000} color="#818cf8" label="Y" unit="mg" />
             <Bar value={d.az} min={-2000} max={2000} color="#34d399" label="Z" unit="mg" />
 
             <div className="text-xs text-slate-500 font-semibold uppercase tracking-wide mt-3 mb-1">Gyroscope</div>
-            <Bar value={d.gx} min={-500000} max={500000} color="#f472b6" label="X" unit="mdps" />
-            <Bar value={d.gy} min={-500000} max={500000} color="#fb923c" label="Y" unit="mdps" />
-            <Bar value={d.gz} min={-500000} max={500000} color="#facc15" label="Z" unit="mdps" />
+            <Bar value={d.gx} min={-500000} max={500000} color="#f472b6" label="X" unit="mdps" valueWidth="w-28" />
+            <Bar value={d.gy} min={-500000} max={500000} color="#fb923c" label="Y" unit="mdps" valueWidth="w-28" />
+            <Bar value={d.gz} min={-500000} max={500000} color="#facc15" label="Z" unit="mdps" valueWidth="w-28" />
           </div>
         </div>
       </div>
