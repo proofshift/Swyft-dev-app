@@ -1,0 +1,13 @@
+{
+  "devices": [
+    {
+      "id": "swyft_thunder",
+      "name": "SWYFT Thunder Motor Controller",
+      "description": "Brushless FOC motor controller for FRC",
+      "file": "SWYFT_THUNDER_20260306_a05308c.bin",
+      "version": "a05308c",
+      "date": "2026-03-06",
+      "size_bytes": 99580
+    }
+  ]
+}
