@@ -159,6 +159,7 @@ export function FirmwareTab() {
           <>
             <p className="text-xs text-slate-400 mb-3">
               Sends a DFU command to the device, waits for it to reboot into the STM32 bootloader, then flashes via WebUSB — no tools needed.
+              Use the raw <span className="font-mono text-slate-300">devsensor_fw.bin</span> from the firmware build (not .hex or .elf).
             </p>
 
             <label className="flex items-center gap-3 p-3 bg-slate-800 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer hover:border-sky-500/50 transition-colors group mb-3">
@@ -214,6 +215,17 @@ export function FirmwareTab() {
             <button onClick={() => { clearDFU(); setFirmwareFile(null) }} className="text-xs text-sky-400 hover:text-sky-300">Flash another file</button>
           </div>
         )}
+      </div>
+
+      {/* USB troubleshooting */}
+      <div className="flex items-start gap-2 p-3 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-slate-400">
+        <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-slate-500" />
+        <span>
+          After a good flash, Windows usually shows the board under{' '}
+          <strong className="text-slate-300">Ports (COM &amp; LPT)</strong> as an STMicroelectronics virtual COM port,
+          not only under &quot;Universal Serial Bus&quot;. If nothing appears, use STM32CubeProgrammer (USB DFU) or ST-Link
+          once to recover, then try this page again.
+        </span>
       </div>
 
       {/* Config reset warning */}

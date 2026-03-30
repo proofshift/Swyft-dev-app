@@ -8,8 +8,9 @@ import { InputTab } from './components/tabs/InputTab'
 import { AboutTab } from './components/tabs/AboutTab'
 import { ConfigTab } from './components/tabs/ConfigTab'
 import { DevSensorTab } from './components/tabs/DevSensorTab'
+import { DevGraphsTab } from './components/tabs/DevGraphsTab'
 import { SerialConnection } from './api/SerialConnection'
-import { Zap, Wifi, WifiOff, Loader2, Radio, Terminal, Cpu, AlertCircle, Sliders, Info, Upload, CheckCircle, ChevronDown, ChevronUp, Usb, Settings, Gauge } from 'lucide-react'
+import { Zap, Wifi, WifiOff, Loader2, Radio, Terminal, Cpu, AlertCircle, Sliders, Info, Upload, CheckCircle, ChevronDown, ChevronUp, Usb, Settings, Gauge, TrendingUp } from 'lucide-react'
 import clsx from 'clsx'
 
 const THUNDER_TABS = [
@@ -23,10 +24,11 @@ const THUNDER_TABS = [
 ] as const
 
 const DEVSENSOR_TABS = [
-  { id: 'sensors',  label: 'Sensors',  icon: Gauge    },
-  { id: 'firmware', label: 'Firmware', icon: Cpu      },
-  { id: 'log',      label: 'Log',      icon: Terminal },
-  { id: 'about',    label: 'About',    icon: Info     },
+  { id: 'sensors',  label: 'Sensors',  icon: Gauge       },
+  { id: 'graphs',   label: 'Graphs',   icon: TrendingUp  },
+  { id: 'firmware', label: 'Firmware', icon: Cpu         },
+  { id: 'log',      label: 'Log',      icon: Terminal    },
+  { id: 'about',    label: 'About',    icon: Info        },
 ] as const
 
 type ThunderTabId    = typeof THUNDER_TABS[number]['id']
@@ -49,10 +51,13 @@ export default function App() {
  }, [])
 
  const {
- connectionState, status, devSensorStatus, deviceType, connectError, connect, disconnect,
- dfuProgress, dfuError, dfuSupported,
+ connectionState, status, devSensorStatus, deviceType, connectError, connect, autoConnect, disconnect,
+ dfuProgress, dfuError, dfuSupported, autoConnecting, justDisconnected,
  flashFirmwareFromSerial, flashFirmwareDirect, clearDFU
  } = useMotorStore()
+
+ // On mount: silently try to reconnect to a previously-permitted port
+ useEffect(() => { autoConnect() }, [])
 
   const isDevSensor = deviceType === 'devsensor'
   const TABS = isDevSensor ? DEVSENSOR_TABS : THUNDER_TABS
@@ -218,8 +223,63 @@ export default function App() {
         </div>
       )}
 
+      {/* Auto-connect detected screen — shown for the full delay even after port opens */}
+      {!isDFUActive && !dfuError && autoConnecting && (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="flex flex-col items-center gap-5 text-center">
+            {/* Pulsing device icon */}
+            <div className="relative">
+              <div className="w-20 h-20 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center animate-pulse">
+                <Usb className="w-9 h-9 text-sky-400" />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center">
+                <Loader2 className="w-4 h-4 text-sky-400 animate-spin" />
+              </div>
+            </div>
+            <div>
+              <p className="text-slate-400 text-sm font-medium">Device detected</p>
+              <h2 className="text-white text-xl font-bold mt-1">Connecting automatically…</h2>
+            </div>
+            {/* Animated dots */}
+            <div className="flex gap-1.5">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="w-1.5 h-1.5 rounded-full bg-sky-400"
+                  style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Device disconnected screen */}
+      {!isConnected && !isDFUActive && !dfuError && !autoConnecting && justDisconnected && (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="flex flex-col items-center gap-5 text-center">
+            <div className="relative">
+              <div className="w-20 h-20 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                <WifiOff className="w-9 h-9 text-red-400" />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center">
+                <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
+              </div>
+            </div>
+            <div>
+              <p className="text-slate-400 text-sm font-medium">Connection lost</p>
+              <h2 className="text-white text-xl font-bold mt-1">Device disconnected</h2>
+              <p className="text-slate-500 text-sm mt-2">Waiting to reconnect…</p>
+            </div>
+            <div className="flex gap-1.5">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="w-1.5 h-1.5 rounded-full bg-red-400"
+                  style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Normal disconnected state */}
-      {!isConnected && !isDFUActive && !dfuError && (
+      {!isConnected && !isDFUActive && !dfuError && !autoConnecting && !justDisconnected && (
         <div className="flex-1 flex items-start justify-center p-8">
           <div className="w-full max-w-sm space-y-5">
             {/* Main connect card */}
@@ -237,14 +297,22 @@ export default function App() {
               </div>
 
               {isSupported ? (
-                <button
-                  onClick={handleConnect}
-                  disabled={isConnecting}
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-sky-500 hover:bg-sky-400 text-white rounded-xl font-semibold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-60"
-                >
-                  {isConnecting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wifi className="w-5 h-5" />}
-                  {isConnecting ? 'Connecting...' : 'Connect Device'}
-                </button>
+                <>
+                  <button
+                    onClick={handleConnect}
+                    disabled={isConnecting}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-sky-500 hover:bg-sky-400 text-white rounded-xl font-semibold shadow-lg shadow-sky-500/25 transition-all disabled:opacity-60"
+                    title="Or plug in a previously-connected device — it will connect automatically"
+                  >
+                    {isConnecting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wifi className="w-5 h-5" />}
+                    {isConnecting ? 'Connecting...' : 'Connect Device'}
+                  </button>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {isConnecting
+                      ? 'Auto-detecting device…'
+                      : 'Plug in a previously connected device to auto-connect, or click above to choose a port.'}
+                  </p>
+                </>
               ) : (
                 <div className="inline-flex items-center gap-2 px-5 py-3 bg-amber-500/10 border border-amber-500/25 text-amber-400 rounded-xl text-sm">
                   <AlertCircle className="w-4 h-4" />
@@ -369,7 +437,7 @@ export default function App() {
       )}
 
       {/* Connected state */}
-      {isConnected && (
+      {isConnected && !autoConnecting && (
         <div className="flex-1 max-w-5xl mx-auto w-full px-4 py-4 flex flex-col gap-3">
           {/* Thunder-only warnings */}
           {!isDevSensor && status && status.voltage > 0.1 && status.voltage < 7 && (
@@ -428,6 +496,7 @@ export default function App() {
           <div className="flex-1 pb-4">
             {/* SWYFT DEV tabs */}
             {isDevSensor && activeTab === 'sensors'  && <DevSensorTab />}
+            {isDevSensor && activeTab === 'graphs'   && <DevGraphsTab />}
             {isDevSensor && activeTab === 'firmware' && <FirmwareTab />}
             {isDevSensor && activeTab === 'log'      && <LogTab />}
             {isDevSensor && activeTab === 'about'    && <AboutTab />}

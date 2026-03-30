@@ -3,10 +3,12 @@ import { useMotorStore } from '../../store/motorStore'
 import { Send, Trash2, Copy } from 'lucide-react'
 import clsx from 'clsx'
 
-const QUICK_CMDS = ['VERSION', 'DEBUG', 'CANSTATUS', 'ENCODER', 'CANDEN', 'STOP', 'HELP']
+const THUNDER_QUICK_CMDS  = ['VERSION', 'DEBUG', 'CANSTATUS', 'ENCODER', 'CANDEN', 'STOP', 'HELP']
+const DEVSENSOR_QUICK_CMDS = ['VERSION', 'STATUS', 'ABZDBG']
 
 export function LogTab() {
-  const { log, send, clearLog } = useMotorStore()
+  const { log, send, clearLog, deviceType } = useMotorStore()
+  const QUICK_CMDS = deviceType === 'devsensor' ? DEVSENSOR_QUICK_CMDS : THUNDER_QUICK_CMDS
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 

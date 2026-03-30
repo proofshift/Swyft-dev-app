@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react'
 import { useMotorStore } from '../../store/motorStore'
-import { Thermometer, Zap, RotateCcw, Activity, Magnet, AlertCircle } from 'lucide-react'
+import { Thermometer, Zap, RotateCcw, Activity, Magnet, AlertCircle, RefreshCw } from 'lucide-react'
 
 /* ── Circular gauge SVG ───────────────────────────────────────────────── */
 function CircleGauge({ value, max, label, unit, color = '#38bdf8' }: {
@@ -51,6 +51,8 @@ function AngleGauge({ rawValue, maxRaw, label, color = '#a78bfa' }: {
   rawValue: number; maxRaw: number; label: string; color?: string
 }) {
   const angleDeg = (rawValue / maxRaw) * 360
+  /* 359.98° rounds to "360.0" with toFixed(1); keep label in [0, 359.9] for encoders */
+  const labelDeg = Math.min(359.9, angleDeg)
   const r = 36
   const circ = 2 * Math.PI * r
   const pct = angleDeg / 360
@@ -74,13 +76,84 @@ function AngleGauge({ rawValue, maxRaw, label, color = '#a78bfa' }: {
         <line x1="50" y1="50" x2={nx} y2={ny} stroke={color} strokeWidth="2.5" strokeLinecap="round" />
         <circle cx="50" cy="50" r="3" fill={color} />
         <text x="50" y="47" textAnchor="middle" fontSize="13" fontWeight="700" fill="white" fontFamily="monospace">
-          {angleDeg.toFixed(1)}°
+          {labelDeg.toFixed(1)}°
         </text>
         <text x="50" y="60" textAnchor="middle" fontSize="9" fill="#94a3b8" fontFamily="sans-serif">
           raw {rawValue}
         </text>
       </svg>
       <span className="text-xs text-slate-400">{label}</span>
+    </div>
+  )
+}
+
+/* ── MT6701 relative / multi-turn display ─────────────────────────────── */
+function RelativeEncoderDisplay({ countRaw, turns, angle }: {
+  countRaw: number; turns: number; angle: number
+}) {
+  const totalDeg   = countRaw === 0 ? 0 : turns * 360 + angle * Math.sign(countRaw || 1)
+  const fractAngle = ((angle % 360) + 360) % 360
+
+  /* Fractional fill within current revolution (0–1) */
+  const fracPct = (fractAngle / 360) * 100
+
+  /* Direction indicator */
+  const isNeg = countRaw < 0
+  const dir = countRaw > 0 ? 'CW ▶' : countRaw < 0 ? '◀ CCW' : '—'
+
+  return (
+    <div className="grid grid-cols-3 gap-3 text-xs">
+      {/* Turns counter */}
+      <div className="bg-slate-800/60 rounded-lg p-2.5 flex flex-col items-center gap-1">
+        <span className="text-slate-500 uppercase tracking-wide text-[10px]">Turns</span>
+        <span className={`text-2xl font-bold font-mono leading-none ${isNeg ? 'text-rose-400' : 'text-indigo-300'}`}>
+          {turns}
+        </span>
+        <span className={`text-[10px] font-semibold ${isNeg ? 'text-rose-500' : 'text-indigo-500'}`}>{dir}</span>
+      </div>
+
+      {/* Fractional arc within current turn */}
+      <div className="bg-slate-800/60 rounded-lg p-2.5 flex flex-col items-center gap-1">
+        <span className="text-slate-500 uppercase tracking-wide text-[10px]">Angle in turn</span>
+        <svg viewBox="0 0 80 80" className="w-14 h-14">
+          <circle cx="40" cy="40" r="30" fill="none" stroke="#1e293b" strokeWidth="6" />
+          <circle
+            cx="40" cy="40" r="30"
+            fill="none"
+            stroke={isNeg ? '#f43f5e' : '#818cf8'}
+            strokeWidth="6"
+            strokeDasharray={`${(fracPct / 100) * (2 * Math.PI * 30)} ${2 * Math.PI * 30}`}
+            strokeLinecap="round"
+            transform="rotate(-90 40 40)"
+            style={{ filter: `drop-shadow(0 0 3px ${isNeg ? '#f43f5e66' : '#818cf866'})` }}
+          />
+          {/* Needle */}
+          <line
+            x1="40" y1="40"
+            x2={40 + 22 * Math.cos((fractAngle - 90) * Math.PI / 180)}
+            y2={40 + 22 * Math.sin((fractAngle - 90) * Math.PI / 180)}
+            stroke={isNeg ? '#f43f5e' : '#818cf8'} strokeWidth="2" strokeLinecap="round"
+          />
+          <circle cx="40" cy="40" r="2.5" fill={isNeg ? '#f43f5e' : '#818cf8'} />
+          <text x="40" y="43" textAnchor="middle" fontSize="11" fontWeight="700" fill="white" fontFamily="monospace">
+            {fractAngle.toFixed(1)}°
+          </text>
+        </svg>
+      </div>
+
+      {/* Total count + total degrees */}
+      <div className="bg-slate-800/60 rounded-lg p-2.5 flex flex-col justify-between gap-1">
+        <span className="text-slate-500 uppercase tracking-wide text-[10px]">Total</span>
+        <div>
+          <div className={`text-base font-bold font-mono leading-tight ${isNeg ? 'text-rose-400' : 'text-indigo-300'}`}>
+            {countRaw} cts
+          </div>
+          <div className="text-slate-400 font-mono text-[11px] mt-0.5">
+            {totalDeg.toFixed(1)}°
+          </div>
+        </div>
+        <div className="text-slate-500 text-[9px] leading-tight">raw ABZ count<br/>since power-on</div>
+      </div>
     </div>
   )
 }
@@ -108,8 +181,10 @@ function Bar({ value, min, max, color, label, unit, valueWidth = 'w-16' }: {
 }
 
 /* ── IMU 3D orientation canvas ────────────────────────────────────────── */
-function OrientationCube({ ax, ay, az }: { ax: number; ay: number; az: number }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+function OrientationCube({ ax, ay, az, gz }: { ax: number; ay: number; az: number; gz: number }) {
+  const canvasRef   = useRef<HTMLCanvasElement>(null)
+  const yawRef      = useRef(0)
+  const lastTimeRef = useRef(Date.now())
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -117,50 +192,94 @@ function OrientationCube({ ax, ay, az }: { ax: number; ay: number; az: number })
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Normalise gravity vector
-    const mag = Math.sqrt(ax * ax + ay * ay + az * az) || 1
-    const nx = ax / mag, ny = ay / mag, nz = az / mag
+    // Integrate gyroscope Z (mdps → dps → degrees) for yaw
+    const now = Date.now()
+    const dt  = Math.min((now - lastTimeRef.current) / 1000, 0.1)  // cap at 100ms
+    lastTimeRef.current = now
+    yawRef.current += (gz / 1000) * dt
+    const yaw = (yawRef.current * Math.PI) / 180
 
-    // Simple tilt-from-gravity: pitch and roll
+    // Pitch & roll from accelerometer (absolute tilt reference)
+    const mag   = Math.sqrt(ax * ax + ay * ay + az * az) || 1
+    const nx = ax / mag, ny = ay / mag, nz = az / mag
     const pitch = Math.atan2(-nx, Math.sqrt(ny * ny + nz * nz))
     const roll  = Math.atan2(ny, nz)
 
+    // Board corners in local frame (flat, z=0)
     const W = canvas.width, H = canvas.height
-    ctx.clearRect(0, 0, W, H)
+    const bw = 52, bh = 36
+    const corners: [number, number, number][] = [
+      [-bw/2, -bh/2, 0], [bw/2, -bh/2, 0],
+      [bw/2,  bh/2,  0], [-bw/2, bh/2, 0],
+    ]
 
-    // Draw a simple rotated rectangle representing the board
+    // Apply Rz(yaw) → Ry(pitch) → Rx(roll)
+    const rotate = ([x, y, z]: [number,number,number]): [number,number,number] => {
+      // Rz yaw
+      const x1 = x * Math.cos(yaw) - y * Math.sin(yaw)
+      const y1 = x * Math.sin(yaw) + y * Math.cos(yaw)
+      const z1 = z
+      // Ry pitch
+      const x2 =  x1 * Math.cos(pitch) + z1 * Math.sin(pitch)
+      const y2 =  y1
+      const z2 = -x1 * Math.sin(pitch) + z1 * Math.cos(pitch)
+      // Rx roll
+      const x3 = x2
+      const y3 = y2 * Math.cos(roll) - z2 * Math.sin(roll)
+      const z3 = y2 * Math.sin(roll) + z2 * Math.cos(roll)
+      return [x3, y3, z3]
+    }
+
+    // Simple perspective projection
+    const project = ([x, y, z]: [number,number,number]): [number,number] => {
+      const fov = 300
+      const scale = fov / (fov + z + 80)
+      return [x * scale, y * scale]
+    }
+
+    const pts = corners.map(rotate).map(project)
+
+    // Determine front face (normal facing viewer — positive Z after rotation)
+    const rotatedNormal = rotate([0, 0, 1])
+    const facingViewer  = rotatedNormal[2] > 0
+
+    ctx.clearRect(0, 0, W, H)
     ctx.save()
     ctx.translate(W / 2, H / 2)
-    ctx.rotate(roll)
-
-    const scaleY = Math.cos(pitch)
-    const w = 60, h = 40
 
     // Shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'
-    ctx.fillRect(-w / 2 + 4, -h * scaleY / 2 + 4, w, h * Math.max(0.1, Math.abs(scaleY)))
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'
+    ctx.beginPath()
+    pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px+3, py+3) : ctx.lineTo(px+3, py+3))
+    ctx.closePath()
+    ctx.fill()
 
-    // PCB body
-    ctx.fillStyle = '#0f4c3a'
+    // Board face
+    ctx.fillStyle   = facingViewer ? '#0f4c3a' : '#0a2e22'
     ctx.strokeStyle = '#22c55e'
-    ctx.lineWidth = 1.5
-    ctx.fillRect(-w / 2, -h * scaleY / 2, w, h * scaleY)
-    ctx.strokeRect(-w / 2, -h * scaleY / 2, w, h * scaleY)
+    ctx.lineWidth   = 1.5
+    ctx.beginPath()
+    pts.forEach(([px, py], i) => i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py))
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
 
-    // "UP" arrow
+    // Direction dot (top edge midpoint)
+    const topMid: [number,number] = [(pts[0][0]+pts[1][0])/2, (pts[0][1]+pts[1][1])/2]
     ctx.fillStyle = '#22c55e'
-    ctx.font = 'bold 10px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText('▲', 0, -h * scaleY / 2 - 4)
+    ctx.beginPath()
+    ctx.arc(topMid[0], topMid[1], 3.5, 0, Math.PI*2)
+    ctx.fill()
 
     ctx.restore()
 
-    // Axis labels
-    ctx.fillStyle = '#64748b'
-    ctx.font = '9px monospace'
-    ctx.textAlign = 'left'
-    ctx.fillText(`P:${(pitch * 57.3).toFixed(1)}°  R:${(roll * 57.3).toFixed(1)}°`, 4, H - 4)
-  }, [ax, ay, az])
+    // Angle readout
+    const yawDeg   = ((yawRef.current % 360) + 360) % 360
+    ctx.fillStyle  = '#475569'
+    ctx.font       = '9px monospace'
+    ctx.textAlign  = 'left'
+    ctx.fillText(`P:${(pitch*57.3).toFixed(0)}° R:${(roll*57.3).toFixed(0)}° Y:${yawDeg.toFixed(0)}°`, 4, H-4)
+  }, [ax, ay, az, gz])
 
   return (
     <canvas
@@ -218,9 +337,20 @@ export function DevSensorTab() {
           <RotateCcw className="w-4 h-4 text-purple-400" />
           <span className="text-sm font-semibold text-white">Magnetic Encoders</span>
         </div>
-        <div className="flex justify-around">
-          <AngleGauge rawValue={d.as5600} maxRaw={4096}  label="AS5600 (I²C)" color="#a78bfa" />
-          <AngleGauge rawValue={d.mt6701} maxRaw={16384} label="MT6701 (SPI)" color="#818cf8" />
+
+        {/* AS5600 + MT6701 absolute */}
+        <div className="flex justify-around mb-4">
+          <AngleGauge rawValue={d.as5600} maxRaw={4096}  label="AS5600 — Absolute" color="#a78bfa" />
+          <AngleGauge rawValue={d.mt6701} maxRaw={16384} label="MT6701 — Absolute" color="#818cf8" />
+        </div>
+
+        {/* MT6701 relative / multi-turn row */}
+        <div className="border-t border-slate-800 pt-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">MT6701 — Relative (multi-turn)</span>
+          </div>
+          <RelativeEncoderDisplay countRaw={d.mt6701CountRaw} turns={d.mt6701Turns} angle={d.mt6701 / 16384 * 360} />
         </div>
       </div>
 
@@ -232,7 +362,7 @@ export function DevSensorTab() {
         </div>
         <div className="flex gap-4 items-start">
           {/* Orientation canvas */}
-          <OrientationCube ax={d.ax} ay={d.ay} az={d.az} />
+          <OrientationCube ax={d.ax} ay={d.ay} az={d.az} gz={d.gz} />
 
           {/* Bars */}
           <div className="flex-1 min-w-0 space-y-2">

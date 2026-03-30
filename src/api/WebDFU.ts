@@ -66,6 +66,42 @@ export function isDFUSupported(): boolean {
   return typeof navigator !== 'undefined' && 'usb' in navigator
 }
 
+/**
+ * Reject obvious garbage (e.g. .hex or .elf picked as "all files").
+ * STM32 vector 0: initial SP in SRAM; vector 1: Reset_Handler in Flash (Thumb LSB=1).
+ */
+export function validateStm32ApplicationBin(data: ArrayBuffer): void {
+  const u8 = new Uint8Array(data)
+  if (u8.byteLength < 0x200) {
+    throw new Error('File too small — use devsensor_fw.bin (raw binary from the build output).')
+  }
+  if (u8[0] === 0x3a && (u8[1] === 0x20 || u8[1] === 0x30)) {
+    throw new Error('This looks like Intel HEX text, not a .bin. Flash the .bin file only.')
+  }
+  const dv = new DataView(u8.buffer, u8.byteOffset, 8)
+  const sp = dv.getUint32(0, true)
+  const reset = dv.getUint32(4, true)
+  const spOk = sp >= 0x20000000 && sp <= 0x2002_0000
+  const resetOk =
+    (reset & 1) === 1 &&
+    ((reset & 0xff00_0000) === 0x0800_0000 || (reset & 0xff00_0000) === 0x0000_0000)
+  if (!spOk || !resetOk) {
+    throw new Error(
+      'Invalid STM32 vector table (first 8 bytes). Use the raw .bin from arm-none-eabi-objcopy — not .hex, .elf, or a renamed file.'
+    )
+  }
+}
+
+/** Pad to 8-byte boundary with 0xFF (flash erase value) for clean programming. */
+function padBinTo8(u8: Uint8Array): Uint8Array {
+  const rem = u8.byteLength % 8
+  if (rem === 0) return u8
+  const out = new Uint8Array(u8.byteLength + (8 - rem))
+  out.set(u8, 0)
+  out.fill(0xff, u8.byteLength)
+  return out
+}
+
 async function claimDFUInterface(device: USBDevice): Promise<number> {
   for (const config of device.configurations) {
     for (const iface of config.interfaces) {
@@ -103,10 +139,34 @@ async function dfuClearStatus(device: USBDevice, iface: number) {
 }
 
 async function dfuDownload(device: USBDevice, iface: number, blockNum: number, data: Uint8Array) {
+  /* Pass the TypedArray, not data.buffer — a Uint8Array view can share a larger ArrayBuffer;
+   * using .buffer alone would corrupt transfers and brick the image in flash. */
   await device.controlTransferOut({
     requestType: 'class', recipient: 'interface',
     request: DFU_DNLOAD, value: blockNum, index: iface
-  }, data.buffer as ArrayBuffer)
+  }, data)
+}
+
+/** Read back programmed flash (DFU_UPLOAD) — block numbering matches DfuSe download. */
+async function dfuUploadBlock(
+  device: USBDevice,
+  iface: number,
+  blockNum: number,
+  length: number
+): Promise<Uint8Array> {
+  const res = await device.controlTransferIn(
+    {
+      requestType: 'class',
+      recipient: 'interface',
+      request: DFU_UPLOAD,
+      value: blockNum,
+      index: iface
+    },
+    length
+  )
+  if (!res.data) throw new Error('DFU upload returned no data')
+  const dv = res.data
+  return new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength)
 }
 
 async function waitForIdle(device: USBDevice, iface: number, maxMs = 5000) {
@@ -153,21 +213,26 @@ export async function flashFirmware(
     await dfuClearStatus(device, iface)
   }
 
-  const data = new Uint8Array(binData)
+  validateStm32ApplicationBin(binData)
+  const data = padBinTo8(new Uint8Array(binData))
   const xferSize = 1024  // STM32 DFU transfer size
   const totalBlocks = Math.ceil(data.length / xferSize)
 
-  // Set address via DfuSe (STM32 specific: address in block 0 via special command)
-  // Set address pointer
-  onProgress({ phase: 'erasing', progress: 10, message: 'Setting flash address...' })
   const addrCmd = new Uint8Array(5)
   addrCmd[0] = 0x21  // Set Address Pointer
   addrCmd[1] = (STM32_FLASH_START) & 0xFF
   addrCmd[2] = (STM32_FLASH_START >> 8) & 0xFF
   addrCmd[3] = (STM32_FLASH_START >> 16) & 0xFF
   addrCmd[4] = (STM32_FLASH_START >> 24) & 0xFF
-  await dfuDownload(device, iface, 0, addrCmd)
-  await waitForIdle(device, iface)
+
+  async function setAddressPointer(): Promise<void> {
+    await dfuDownload(device, iface, 0, addrCmd)
+    await waitForIdle(device, iface)
+  }
+
+  // Set address via DfuSe (STM32 specific: address in block 0 via special command)
+  onProgress({ phase: 'erasing', progress: 10, message: 'Setting flash address...' })
+  await setAddressPointer()
 
   // Erase command
   onProgress({ phase: 'erasing', progress: 15, message: 'Erasing flash...' })
@@ -175,6 +240,12 @@ export async function flashFirmware(
   eraseCmd[0] = 0x41  // Mass erase
   await dfuDownload(device, iface, 0, eraseCmd)
   await waitForIdle(device, iface, 30000)  // Erase can take up to 30s
+
+  /* ST DfuSe: after mass erase the internal address pointer may be invalid — set it again
+   * before downloading firmware (see AN3156 / dfu-util DfuSe behavior). Skipping this
+   * can leave garbage or incomplete programming → MCU does not boot → no USB in Device Manager. */
+  onProgress({ phase: 'erasing', progress: 18, message: 'Re-setting flash address after erase…' })
+  await setAddressPointer()
 
   onProgress({ phase: 'flashing', progress: 30, message: 'Flashing firmware...' })
 
@@ -193,6 +264,29 @@ export async function flashFirmware(
     })
   }
 
+  /* Read back first block — if this fails or mismatches, do not manifest (avoids no-boot / no USB). */
+  onProgress({ phase: 'flashing', progress: 93, message: 'Verifying written flash…' })
+  await setAddressPointer()
+  const checkLen = Math.min(xferSize, data.length)
+  try {
+    const readBack = await dfuUploadBlock(device, iface, 2, checkLen)
+    for (let i = 0; i < checkLen; i++) {
+      if (readBack[i] !== data[i]) {
+        throw new Error(
+          `Verify failed at byte ${i} (written flash does not match file). Do not unplug — try flash again or use STM32CubeProgrammer.`
+        )
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith('Verify failed')) throw e
+    /* Some hosts/bootloaders reject upload — continue only if download completed without error */
+    onProgress({
+      phase: 'flashing',
+      progress: 94,
+      message: 'Could not read back flash (skipped). If the device does not boot, use ST-Link.',
+    })
+  }
+
   // Zero-length DNLOAD at block 0 signals end of transfer → starts manifest phase
   onProgress({ phase: 'flashing', progress: 96, message: 'Sending manifest command...' })
   await dfuDownload(device, iface, 0, new Uint8Array(0))
@@ -204,7 +298,7 @@ export async function flashFirmware(
   // At dfuMANIFEST-WAIT-RESET the bootloader has finished and waits for USB reset.
   onProgress({ phase: 'flashing', progress: 97, message: 'Programming flash...' })
 
-  const deadline = Date.now() + 15000
+  const deadline = Date.now() + 45000
   while (Date.now() < deadline) {
     let s
     try {
@@ -232,13 +326,20 @@ export async function flashFirmware(
     await new Promise(r => setTimeout(r, wait))
   }
 
-  // Close the USB connection — the STM32 bootloader detects the USB disconnect
-  // in dfuMANIFEST-WAIT-RESET and performs a system reset into the application.
-  onProgress({ phase: 'flashing', progress: 99, message: 'Rebooting device...' })
-  try { await device.close() } catch { /* ignore */ }
+  /* Leave DFU: release + close only. USBDevice.reset() often breaks Windows re-enumeration. */
+  onProgress({ phase: 'flashing', progress: 99, message: 'Leaving bootloader (USB will re-enumerate)…' })
+  try {
+    await device.releaseInterface(iface)
+  } catch {
+    /* ignore */
+  }
+  try {
+    await device.close()
+  } catch {
+    /* ignore */
+  }
 
-  // Give the device a moment to reset and re-enumerate as CDC serial
-  await new Promise(r => setTimeout(r, 1000))
+  await new Promise(r => setTimeout(r, 3500))
 
-  onProgress({ phase: 'done', progress: 100, message: 'Done! Device rebooted with new firmware.' })
+  onProgress({ phase: 'done', progress: 100, message: 'Firmware programmed. Reconnecting serial (no button)…' })
 }

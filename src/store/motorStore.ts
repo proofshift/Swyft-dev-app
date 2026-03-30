@@ -9,7 +9,9 @@ export interface DevSensorStatus {
   vsen: number        // volts
   ntc: number         // °C
   as5600: number      // raw 12-bit (0–4095)
-  mt6701: number      // raw 14-bit (0–16383)
+  mt6701: number      // raw 14-bit (0–16383, absolute within one turn)
+  mt6701CountRaw: number  // unbounded signed count since power-on
+  mt6701Turns: number     // complete revolutions (signed)
   ax: number          // mg
   ay: number
   az: number
@@ -104,8 +106,10 @@ function parseDevSensorStatus(line: string): DevSensorStatus | null {
   return {
     vsen:    parseFloat(kv.vsen ?? '0'),
     ntc:     parseFloat(kv.ntc ?? '0'),
-    as5600:  parseInt(kv.as5600 ?? '0'),
-    mt6701:  parseInt(kv.mt6701 ?? '0'),
+    as5600:        parseInt(kv.as5600 ?? '0'),
+    mt6701:        parseInt(kv.mt6701 ?? '0'),
+    mt6701CountRaw: parseInt(kv.cnt  ?? '0'),
+    mt6701Turns:    parseInt(kv.turn ?? '0'),
     ax:      parseFloat(kv.ax ?? '0'),
     ay:      parseFloat(kv.ay ?? '0'),
     az:      parseFloat(kv.az ?? '0'),
@@ -191,7 +195,14 @@ interface MotorStore {
  dfuError: string | null
  dfuSupported: boolean
 
+ /** True while autoConnect() is running (not a manual connect) */
+ autoConnecting: boolean
+ /** True briefly after an unexpected disconnect (shows disconnected screen) */
+ justDisconnected: boolean
+
  connect: () => Promise<void>
+ /** Try to connect to a previously-permitted port silently (no dialog). */
+ autoConnect: (port?: SerialPort) => Promise<void>
  disconnect: () => Promise<void>
  send: (cmd: string) => Promise<void>
  clearLog: () => void
@@ -245,6 +256,175 @@ function parseConfigLine(line: string): Partial<MotorConfig> | null {
   return null
 }
 
+/* Rate-limit DevSensor log entries to ~1 per second */
+let _lastDevSensorLog = 0
+
+/* Shared SerialConnection factory — keeps onData handler in one place */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function _makeConn(set: (partial: Partial<MotorStore> | ((s: MotorStore) => Partial<MotorStore>)) => void, get: () => MotorStore): SerialConnection {
+  return new SerialConnection({
+    baudRate: 115200,
+    onStateChange: (connectionState) => {
+      const wasConnected = get().connectionState === 'connected'
+      const isUnexpectedDisconnect = wasConnected && connectionState === 'disconnected' && !get().autoConnecting
+      set({ connectionState })
+      if (isUnexpectedDisconnect) {
+        set({ justDisconnected: true, status: null, devSensorStatus: null, deviceType: null, firmwareVersion: null, firmwareBuildDate: null, config: null })
+        // Show disconnected screen for 2s then try to auto-reconnect
+        setTimeout(() => {
+          set({ justDisconnected: false })
+          get().autoConnect()
+        }, 800)
+      }
+    },
+    onData: (line) => {
+      if (isDevSensorLine(line)) {
+        const ds = parseDevSensorStatus(line)
+        if (ds) {
+          set(s => ({ devSensorStatus: ds, deviceType: s.deviceType ?? 'devsensor' }))
+          // Add a log entry ~once per second so the Log tab shows live data
+          const now = Date.now()
+          if (now - _lastDevSensorLog >= 1000) {
+            _lastDevSensorLog = now
+            const entry = `[DEV] ${ds.vsen.toFixed(2)}V  ${ds.ntc.toFixed(1)}°C  AS5600:${ds.as5600}  MT6701:${ds.mt6701}  ax:${ds.ax.toFixed(0)} ay:${ds.ay.toFixed(0)} az:${ds.az.toFixed(0)}  mag:${ds.magnet ? 'YES' : 'no'}  err:0x${ds.errFlags.toString(16).padStart(2,'0')}`
+            set(s => ({ log: [...s.log.slice(-499), entry] }))
+          }
+          return
+        }
+      }
+      const status = parseStatus(line)
+      if (status) {
+        set(s => ({
+          status,
+          deviceType: s.deviceType ?? 'thunder',
+          statusHistory: [...s.statusHistory.slice(-299), { ...status, ts: Date.now() } as MotorStatus & { ts: number }]
+        }))
+        return
+      }
+      const can = parseCanStatus(line)
+      if (can) { set(s => ({ canStatus: { ...s.canStatus, ...can } })); return }
+      if (line.startsWith('#C') && line.length > 4 && line[3] === ':') {
+        const partial = parseConfigLine(line)
+        if (partial) { _configPartial = { ..._configPartial, ...partial }; return }
+      }
+      if (line.startsWith('#CEND') || line === '#CEND') {
+        set({ config: _configPartial as MotorConfig, configLoading: false })
+        _configPartial = {}
+        return
+      }
+      set(s => {
+        const log = [...s.log.slice(-499), `< ${line}`]
+        let fv = s.firmwareVersion, fb = s.firmwareBuildDate
+        const clean = line.startsWith('< ') ? line.substring(2) : line
+        if (clean.startsWith('Version:')) fv = clean.substring(8).trim()
+        else if (line.startsWith('Version:')) fv = line.substring(8).trim()
+        if (clean.startsWith('Build:')) fb = clean.substring(6).trim()
+        else if (line.startsWith('Build:')) fb = line.substring(6).trim()
+        return { log, firmwareVersion: fv, firmwareBuildDate: fb }
+      })
+    }
+  })
+}
+
+/**
+ * Try every Web Serial port the user already allowed (no picker).
+ * Sort STM32 CDC first — after DFU, COM order can change so [0] is often wrong.
+ */
+async function tryConnectPermittedPortsOnce(
+  set: (partial: Partial<MotorStore> | ((s: MotorStore) => Partial<MotorStore>)) => void,
+  get: () => MotorStore
+): Promise<boolean> {
+  if (!SerialConnection.isSupported()) return false
+  if (get().connectionState === 'connected') return true
+
+  const raw = await SerialConnection.getPermittedPorts()
+  const ports = SerialConnection.sortPortsForStm32Reconnect(raw)
+  if (ports.length === 0) return false
+
+  set({ connectionState: 'connecting', connectError: null, autoConnecting: true })
+
+  for (const port of ports) {
+    const conn = _makeConn(set, get)
+    try {
+      set({ conn })
+      await conn.connectToPort(port)
+      setQueueConnection(conn)
+      await new Promise(r => setTimeout(r, 500))
+      await enqueueCommand('VERSION')
+      await enqueueCommand('CANSTATUS')
+      set({ autoConnecting: false })
+      return true
+    } catch {
+      setQueueConnection(null)
+      try {
+        await conn.disconnect()
+      } catch {
+        /* ignore */
+      }
+      set({ conn: null, connectionState: 'disconnected' })
+    }
+  }
+
+  set({ autoConnecting: false, connectionState: 'disconnected' })
+  return false
+}
+
+/** After WebUSB DFU: reopen serial via getPorts() only — no Connect click (requires prior permission). */
+async function autoReconnectSerialAfterDfu(
+  set: (partial: Partial<MotorStore> | ((s: MotorStore) => Partial<MotorStore>)) => void,
+  get: () => MotorStore
+): Promise<void> {
+  set({
+    dfuProgress: {
+      phase: 'done',
+      progress: 100,
+      message: 'Waiting for CDC serial after DFU (USB may blink in Device Manager — normal)…',
+    },
+  })
+
+  if (!SerialConnection.isSupported()) {
+    set({
+      dfuProgress: {
+        phase: 'done',
+        progress: 100,
+        message: 'Web Serial unavailable — use Chrome or Edge.',
+      },
+    })
+    return
+  }
+
+  await new Promise(r => setTimeout(r, 350))
+
+  let connectEventFired = false
+  const serial = navigator.serial
+  const onConnect = () => {
+    connectEventFired = true
+  }
+  serial.addEventListener('connect', onConnect)
+
+  try {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if (get().connectionState === 'connected') break
+      const ok = await tryConnectPermittedPortsOnce(set, get)
+      if (ok) break
+      await new Promise(r => setTimeout(r, 420))
+    }
+  } finally {
+    serial.removeEventListener('connect', onConnect)
+  }
+
+  const ok = get().connectionState === 'connected'
+  set({
+    dfuProgress: {
+      phase: 'done',
+      progress: 100,
+      message: ok
+        ? `Done — serial reconnected${connectEventFired ? ' (USB attach detected).' : '.'}`
+        : 'Flash OK — could not reopen serial. Use Connect once in this tab to grant the port, then flash again; or replug USB.',
+    },
+  })
+}
+
 export const useMotorStore = create<MotorStore>((set, get) => ({
  conn: null,
  connectionState: 'disconnected',
@@ -268,67 +448,16 @@ export const useMotorStore = create<MotorStore>((set, get) => ({
  dfuProgress: null,
  dfuError: null,
  dfuSupported: isDFUSupported(),
+ autoConnecting: false,
+ justDisconnected: false,
 
  connect: async () => {
- set({ connectionState: 'connecting', connectError: null })
- const conn = new SerialConnection({
- baudRate: 115200,
- onStateChange: (connectionState) => set({ connectionState }),
- onData: (line) => {
- // Detect and handle SWYFT DEV sensor data
- if (isDevSensorLine(line)) {
- const ds = parseDevSensorStatus(line)
- if (ds) {
- set(s => ({ devSensorStatus: ds, deviceType: s.deviceType ?? 'devsensor' }))
- return
- }
- }
-
- const status = parseStatus(line)
- if (status) {
- set(s => ({
- status,
- deviceType: s.deviceType ?? 'thunder',
- statusHistory: [...s.statusHistory.slice(-299), { ...status, ts: Date.now() } as MotorStatus & { ts: number }]
- }))
- return
- }
-
-        const can = parseCanStatus(line)
-        if (can) {
-          set(s => ({ canStatus: { ...s.canStatus, ...can } }))
-          return
-        }
-
-        // Config lines accumulate until #CEND
-        if (line.startsWith('#C') && line.length > 4 && line[3] === ':') {
-          const partial = parseConfigLine(line)
-          if (partial) { _configPartial = { ..._configPartial, ...partial }; return }
-        }
-        if (line.startsWith('#CEND') || line === '#CEND') {
-          set({ config: _configPartial as MotorConfig, configLoading: false })
-          _configPartial = {}
-          return
-        }
-
-        set(s => {
-          const log = [...s.log.slice(-499), `< ${line}`]
-          let fv = s.firmwareVersion
-          let fb = s.firmwareBuildDate
-          const clean = line.startsWith('< ') ? line.substring(2) : line
-          if (clean.startsWith('Version:')) fv = clean.substring(8).trim()
-          else if (line.startsWith('Version:')) fv = line.substring(8).trim()
-          if (clean.startsWith('Build:')) fb = clean.substring(6).trim()
-          else if (line.startsWith('Build:')) fb = line.substring(6).trim()
-          return { log, firmwareVersion: fv, firmwareBuildDate: fb }
-        })
-      }
-    })
+    set({ connectionState: 'connecting', connectError: null })
+    const conn = _makeConn(set, get)
     try {
       set({ conn })
       await conn.connect()
       setQueueConnection(conn)
-      // Allow device to stabilize after connect, then request version and status
       await new Promise(r => setTimeout(r, 250))
       await enqueueCommand('VERSION')
       await enqueueCommand('CANSTATUS')
@@ -336,18 +465,35 @@ export const useMotorStore = create<MotorStore>((set, get) => ({
       const msg = e instanceof Error ? e.message : String(e)
       const isCancel = msg.includes('No port selected') || msg.includes('AbortError') || msg.includes('cancelled')
       setQueueConnection(null)
-      set({
-        conn: null,
-        connectionState: 'disconnected',
-        connectError: isCancel ? null : msg
-      })
+      set({ conn: null, connectionState: 'disconnected', connectError: isCancel ? null : msg })
+    }
+  },
+
+ autoConnect: async (port?: SerialPort) => {
+    if (get().connectionState !== 'disconnected') return
+    const ports = port ? [port] : await SerialConnection.getPermittedPorts()
+    if (ports.length === 0) return
+    set({ connectionState: 'connecting', connectError: null, autoConnecting: true })
+    const conn = _makeConn(set, get)
+    try {
+      set({ conn })
+      await conn.connectToPort(ports[0])
+      setQueueConnection(conn)
+      await new Promise(r => setTimeout(r, 800))
+      await enqueueCommand('VERSION')
+      await enqueueCommand('CANSTATUS')
+    } catch {
+      setQueueConnection(null)
+      set({ conn: null, connectionState: 'disconnected' })
+    } finally {
+      set({ autoConnecting: false })
     }
   },
 
  disconnect: async () => {
  setQueueConnection(null)
  await get().conn?.disconnect()
- set({ conn: null, status: null, statusHistory: [], devSensorStatus: null, deviceType: null, firmwareVersion: null, firmwareBuildDate: null, config: null })
+ set({ conn: null, status: null, statusHistory: [], devSensorStatus: null, deviceType: null, firmwareVersion: null, firmwareBuildDate: null, config: null, justDisconnected: false })
  },
 
   loadConfig: async () => {
@@ -385,6 +531,7 @@ export const useMotorStore = create<MotorStore>((set, get) => ({
       set({ dfuProgress: { phase: 'connecting', progress: 10, message: 'Select "STM32 BOOTLOADER" in the browser dialog...' } })
       const binData = await file.arrayBuffer()
       await webDFUFlash(binData, (p) => set({ dfuProgress: p }))
+      await autoReconnectSerialAfterDfu(set, get)
     } catch (e) {
       set({ dfuError: e instanceof Error ? e.message : String(e), dfuProgress: null })
     }
@@ -396,6 +543,7 @@ export const useMotorStore = create<MotorStore>((set, get) => ({
       set({ dfuProgress: { phase: 'connecting', progress: 5, message: 'Select "STM32 BOOTLOADER" in the browser dialog...' } })
       const binData = await file.arrayBuffer()
       await webDFUFlash(binData, (p) => set({ dfuProgress: p }))
+      await autoReconnectSerialAfterDfu(set, get)
     } catch (e) {
       set({ dfuError: e instanceof Error ? e.message : String(e), dfuProgress: null })
     }
@@ -403,3 +551,17 @@ export const useMotorStore = create<MotorStore>((set, get) => ({
 
   clearDFU: () => set({ dfuProgress: null, dfuError: null }),
 }))
+
+/* ── Hot-plug: auto-connect when a serial device is plugged in ─────────
+ * navigator.serial fires a 'connect' event whenever a previously-permitted
+ * USB serial device is plugged in.  We grab the port from the event and
+ * call autoConnect() so the user never has to press a button.           */
+if (SerialConnection.isSupported()) {
+  navigator.serial.addEventListener('connect', (e) => {
+    const port = (e as Event & { target: SerialPort }).target
+    const { connectionState, autoConnect } = useMotorStore.getState()
+    if (connectionState === 'disconnected') {
+      setTimeout(() => autoConnect(port), 500)   /* brief delay for OS enumeration */
+    }
+  })
+}

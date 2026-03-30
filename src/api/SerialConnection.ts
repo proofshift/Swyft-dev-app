@@ -3,7 +3,7 @@ declare global {
   interface Navigator {
     readonly serial: Serial
   }
-  interface Serial {
+  interface Serial extends EventTarget {
     requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>
     getPorts(): Promise<SerialPort[]>
   }
@@ -14,9 +14,15 @@ declare global {
     usbVendorId?: number
     usbProductId?: number
   }
+  interface SerialPortInfo {
+    usbVendorId?: number
+    usbProductId?: number
+  }
   interface SerialPort {
     open(options: SerialOptions): Promise<void>
     close(): Promise<void>
+    /** Chromium — USB-backed ports expose VID/PID for sorting after re-enumeration */
+    getInfo?(): SerialPortInfo
     readonly readable: ReadableStream<Uint8Array> | null
     readonly writable: WritableStream<Uint8Array> | null
   }
@@ -62,6 +68,40 @@ export class SerialConnection {
     try { this.opts.onStateChange(s) } catch { /* ignore */ }
   }
 
+  /** ST USB vendor — used to pick CDC after DFU when multiple COM ports exist */
+  static readonly STM32_USB_VENDOR_ID = 0x0483
+  /** Common STM32 Virtual COM Port PID (DFU is 0xdf11 — not a serial port) */
+  static readonly STM32_CDC_PRODUCT_ID = 0x5740
+
+  /** Returns ports the user has already granted access to (no dialog). */
+  static async getPermittedPorts(): Promise<SerialPort[]> {
+    if (!SerialConnection.isSupported()) return []
+    try { return await navigator.serial.getPorts() } catch { return [] }
+  }
+
+  /** Prefer STM32 CDC (0x0483/0x5740), then any ST, then others — fixes reconnect after DFU when port order changes. */
+  static sortPortsForStm32Reconnect(ports: SerialPort[]): SerialPort[] {
+    const rank = (p: SerialPort): number => {
+      const info = typeof p.getInfo === 'function' ? p.getInfo() : {}
+      const vid = info.usbVendorId
+      const pid = info.usbProductId
+      if (vid === SerialConnection.STM32_USB_VENDOR_ID && pid === SerialConnection.STM32_CDC_PRODUCT_ID) return 0
+      if (vid === SerialConnection.STM32_USB_VENDOR_ID && pid !== undefined && pid !== 0xdf11) return 1
+      if (vid === SerialConnection.STM32_USB_VENDOR_ID) return 2
+      return 3
+    }
+    return [...ports].sort((a, b) => rank(a) - rank(b))
+  }
+
+  /** Connect to a specific already-permitted port (no browser dialog). */
+  async connectToPort(port: SerialPort): Promise<void> {
+    if (!SerialConnection.isSupported()) throw new Error('WebSerial not supported')
+    this.setState('connecting')
+    this._closed = false
+    this.port = port
+    await this._openPort()
+  }
+
   async connect(): Promise<void> {
     if (!SerialConnection.isSupported()) {
       throw new Error('WebSerial not supported in this browser')
@@ -71,6 +111,12 @@ export class SerialConnection {
 
     // Let user pick port - may throw if they cancel (DOMException: AbortError)
     this.port = await navigator.serial.requestPort()
+
+    await this._openPort()
+  }
+
+  private async _openPort(): Promise<void> {
+    if (!this.port) throw new Error('No port selected')
 
     // Open at motor baud rate
     await this.port.open({ baudRate: this.opts.baudRate, bufferSize: 4096 })
