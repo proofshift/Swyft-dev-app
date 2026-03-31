@@ -16,7 +16,7 @@ import {
   Sliders, Upload, CheckCircle, Usb, Settings, Gauge, TrendingUp,
   BookOpen, LayoutDashboard, ChevronLeft, ChevronRight, ChevronDown,
   ChevronUp, Activity, Thermometer, Menu, X, Palette, Signal,
-  AlertTriangle,
+  AlertTriangle, Home,
 } from 'lucide-react'
 import clsx from 'clsx'
 import swyftLogo from './assets/swyft-logo.png'
@@ -111,8 +111,11 @@ function AppSidebar({
 
   const deviceTabs  = tabs.filter(t => t.group === 'device')
   const systemTabs  = tabs.filter(t => t.group === 'system')
-  const docsOnly    = [{ id: 'docs', label: 'Docs', icon: BookOpen, group: 'system' }]
-  const systemList  = isConnected ? systemTabs : docsOnly
+  const disconnectedList = [
+    { id: 'control', label: 'Connect',  icon: Home,     group: 'system' },
+    { id: 'docs',    label: 'Docs',     icon: BookOpen, group: 'system' },
+  ]
+  const systemList  = isConnected ? systemTabs : disconnectedList
 
   return (
     <aside className={clsx(
