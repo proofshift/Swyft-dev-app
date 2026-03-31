@@ -4,10 +4,11 @@
 
 /* Hard-code background so it's instant before Tailwind loads */
 html, body {
-  background-color: #020617;
+  background-color: #0c1220;
   color: #f1f5f9;
   margin: 0;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 @layer base {

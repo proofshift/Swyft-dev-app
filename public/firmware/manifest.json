@@ -8,6 +8,15 @@
       "version": "a05308c",
       "date": "2026-03-06",
       "size_bytes": 99580
+    },
+    {
+      "id": "swyft_devsensor",
+      "name": "SWYFT DevSensor Board",
+      "description": "Multi-sensor dev board (MT6701 ABZ, AS5600, LSM6DSO, ADC)",
+      "file": "SWYFT_DEVSENSOR_20260330.bin",
+      "version": "20260330",
+      "date": "2026-03-30",
+      "size_bytes": 64596
     }
   ]
 }
