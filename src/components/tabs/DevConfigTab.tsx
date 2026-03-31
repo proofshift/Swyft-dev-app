@@ -67,18 +67,18 @@ export function DevConfigTab() {
 
   /* ── Identify ───────────────────────────────────────────────────── */
   const [identifyState, setIdentifyState] = useState<'idle'|'blinking'>('idle')
-  const [identifyFlash, setIdentifyFlash] = useState(0) // 1-5 counter for UI feedback
+  const [identifyFlash, setIdentifyFlash] = useState(0)
   const handleIdentify = async () => {
     setIdentifyState('blinking')
+    await send('IDENTIFY')   // firmware handles the full fade sequence
+    // Total sequence: 5 × (70+120+70+140)ms + 700ms green fade ≈ 2750ms
     const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
     for (let i = 1; i <= 5; i++) {
       setIdentifyFlash(i)
-      await send('LED 255 255 255')   // white full brightness
-      await delay(400)
-      await send('LED 0 0 0')         // off
-      await delay(300)
+      await delay(700)        // one flash cycle: ramp up + ramp down + pause
     }
     setIdentifyFlash(0)
+    await delay(650)          // green fade-in
     setIdentifyState('idle')
   }
 

@@ -387,15 +387,14 @@ export function ConfigTab() {
 
   const handleIdentify = async () => {
     setIdentifyState('blinking')
+    await send('IDENTIFY')   // firmware handles the full fade sequence
     const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
     for (let i = 1; i <= 5; i++) {
       setIdentifyFlash(i)
-      await send('LED 255 255 255')
-      await delay(400)
-      await send('LED 0 0 0')
-      await delay(300)
+      await delay(700)
     }
     setIdentifyFlash(0)
+    await delay(750)
     setIdentifyState('idle')
   }
 
