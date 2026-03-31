@@ -615,7 +615,12 @@ export default function App() {
               )}>
               <Palette className="w-4 h-4" />
             </button>
-            {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+            {settingsOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setSettingsOpen(false)} />
+                <SettingsPanel onClose={() => setSettingsOpen(false)} />
+              </>
+            )}
 
             {isSupported && (
               <button onClick={isConnected ? disconnect : handleConnect} disabled={isConnecting}
