@@ -3,7 +3,7 @@ import { useMotorStore, type DevSensorStatus } from '../../store/motorStore'
 import {
   TrendingUp, Trash2, Pause, Play, Download, Lock, Unlock,
   Upload, StickyNote, ChevronDown, ChevronUp, SkipBack, SkipForward,
-  FastForward,
+  FastForward, LayoutGrid,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -316,6 +316,20 @@ function LiveBadge({ label, value, color }: { label: string; value: string; colo
   )
 }
 
+/* ── Chart catalogue ─────────────────────────────────────────────────────── */
+const ALL_CHARTS = [
+  { id: 'voltage',   title: 'Supply Voltage',                       accent: '#fbbf24' },
+  { id: 'temp',      title: 'Temperature',                          accent: '#fb923c' },
+  { id: 'absAngle',  title: 'Encoder — Absolute Angle',             accent: '#a78bfa' },
+  { id: 'relPos',    title: 'MT6701 — Relative Position',           accent: '#6366f1' },
+  { id: 'turns',     title: 'MT6701 — Completed Turns',             accent: '#38bdf8' },
+  { id: 'accel',     title: 'Accelerometer',                        accent: '#34d399' },
+  { id: 'gyro',      title: 'Gyroscope',                            accent: '#f472b6' },
+  { id: 'rawCount',  title: 'MT6701 Raw ABZ Count',                 accent: '#c084fc' },
+] as const
+
+type ChartId = typeof ALL_CHARTS[number]['id']
+
 /* ── Main tab ────────────────────────────────────────────────────────────── */
 export function DevGraphsTab() {
   const devSensorStatus = useMotorStore(s => s.devSensorStatus)
@@ -328,6 +342,18 @@ export function DevGraphsTab() {
   const [history,    setHistory]    = useState<HistoryPoint[]>([])
   const [paused,     setPaused]     = useState(false)
   const [maxPts,     setMaxPts]     = useState(120)
+
+  /* signal/chart selector */
+  const [visibleCharts, setVisibleCharts] = useState<Set<ChartId>>(
+    () => new Set(ALL_CHARTS.map(c => c.id))
+  )
+  const [signalPickerOpen, setSignalPickerOpen] = useState(false)
+  const toggleChart = (id: ChartId) =>
+    setVisibleCharts(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
   const pausedRef = useRef(false)
   pausedRef.current = paused
 
@@ -595,6 +621,54 @@ export function DevGraphsTab() {
             </>
           )}
 
+          {/* Signal picker */}
+          <div className="relative">
+            <button onClick={() => setSignalPickerOpen(o => !o)}
+              className={clsx('flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all',
+                signalPickerOpen
+                  ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+              )}>
+              <LayoutGrid className="w-3.5 h-3.5" />
+              Signals
+              <span className="bg-sky-500/20 text-sky-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                {visibleCharts.size}/{ALL_CHARTS.length}
+              </span>
+            </button>
+            {signalPickerOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setSignalPickerOpen(false)} />
+                <div className="absolute right-0 top-9 z-40 w-64 bg-[#080d18] border border-slate-700/80 rounded-xl shadow-2xl p-3 space-y-1">
+                  <div className="flex items-center justify-between px-1 pb-1.5 mb-1 border-b border-slate-800">
+                    <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Visible Charts</span>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setVisibleCharts(new Set(ALL_CHARTS.map(c => c.id)))}
+                        className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors">All</button>
+                      <span className="text-slate-700">|</span>
+                      <button onClick={() => setVisibleCharts(new Set())}
+                        className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors">None</button>
+                    </div>
+                  </div>
+                  {ALL_CHARTS.map(c => (
+                    <button key={c.id} onClick={() => toggleChart(c.id)}
+                      className={clsx('w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-all text-xs text-left',
+                        visibleCharts.has(c.id) ? 'bg-slate-800/80 text-slate-200' : 'text-slate-600 hover:text-slate-400'
+                      )}>
+                      <span className={clsx('w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 transition-all',
+                        visibleCharts.has(c.id) ? 'border-transparent' : 'border-slate-700'
+                      )}
+                        style={visibleCharts.has(c.id) ? { backgroundColor: c.accent } : {}}>
+                        {visibleCharts.has(c.id) && <span className="text-black font-black text-[8px]">✓</span>}
+                      </span>
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c.accent }} />
+                      {c.title}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Clear */}
           {!isReplaying && (
             <button onClick={clearHistory}
@@ -635,47 +709,63 @@ export function DevGraphsTab() {
       </div>
 
       {/* ── Charts ───────────────────────────────────────────────────────── */}
+      {visibleCharts.size === 0 ? (
+        <div className="flex flex-col items-center justify-center h-32 gap-2 text-slate-500">
+          <LayoutGrid className="w-6 h-6 text-slate-700" />
+          <span className="text-sm">No charts selected — use the Signals button to add some</span>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <ChartCard title="Supply Voltage" accent="#fbbf24">
-          <CanvasChart data={h} refData={refH} lines={[{ key: 'vsen', color: '#fbbf24', label: 'VSEN' }]} yDomain={[0, 5]} unit="V" />
-        </ChartCard>
-
-        <ChartCard title="Temperature" accent="#fb923c">
-          <CanvasChart data={h} refData={refH}
-            lines={[{ key: 'ntc', color: '#fb923c', label: 'Board NTC' }, { key: 'imuTemp', color: '#f97316', label: 'IMU' }]}
-            yDomain={[0, 80]} unit="°C" />
-        </ChartCard>
-
-        <ChartCard title="Encoder — Absolute Angle (0–360°)" accent="#a78bfa">
-          <CanvasChart data={h} refData={refH}
-            lines={[{ key: 'as5600_deg', color: '#a78bfa', label: 'AS5600' }, { key: 'mt6701_abs_deg', color: '#818cf8', label: 'MT6701' }]}
-            yDomain={[0, 360]} unit="°" />
-        </ChartCard>
-
-        <ChartCard title="MT6701 — Relative Position (multi-turn)" accent="#6366f1">
-          <CanvasChart data={h} refData={refH} lines={[{ key: 'mt6701_rel_deg', color: '#6366f1', label: 'Rel deg' }]} unit="°" />
-        </ChartCard>
-
-        <ChartCard title="MT6701 — Completed Turns" accent="#38bdf8">
-          <CanvasChart data={h} refData={refH} lines={[{ key: 'mt6701_turns_f', color: '#38bdf8', label: 'Turns' }]} unit=" rev" />
-        </ChartCard>
-
-        <ChartCard title="Accelerometer" accent="#34d399">
-          <CanvasChart data={h} refData={refH}
-            lines={[{ key: 'ax', color: '#38bdf8', label: 'X' }, { key: 'ay', color: '#818cf8', label: 'Y' }, { key: 'az', color: '#34d399', label: 'Z' }]}
-            yDomain={[-2000, 2000]} unit="mg" />
-        </ChartCard>
-
-        <ChartCard title="Gyroscope" accent="#f472b6">
-          <CanvasChart data={h} refData={refH}
-            lines={[{ key: 'gx_dps', color: '#f472b6', label: 'X' }, { key: 'gy_dps', color: '#fb923c', label: 'Y' }, { key: 'gz_dps', color: '#facc15', label: 'Z' }]}
-            unit=" dps" height={165} />
-        </ChartCard>
-
-        <ChartCard title="MT6701 Raw ABZ Count" accent="#c084fc">
-          <CanvasChart data={h} refData={refH} lines={[{ key: 'mt6701CountRaw', color: '#c084fc', label: 'Count' }]} unit=" cts" />
-        </ChartCard>
+        {visibleCharts.has('voltage') && (
+          <ChartCard title="Supply Voltage" accent="#fbbf24">
+            <CanvasChart data={h} refData={refH} lines={[{ key: 'vsen', color: '#fbbf24', label: 'VSEN' }]} yDomain={[0, 5]} unit="V" />
+          </ChartCard>
+        )}
+        {visibleCharts.has('temp') && (
+          <ChartCard title="Temperature" accent="#fb923c">
+            <CanvasChart data={h} refData={refH}
+              lines={[{ key: 'ntc', color: '#fb923c', label: 'Board NTC' }, { key: 'imuTemp', color: '#f97316', label: 'IMU' }]}
+              yDomain={[0, 80]} unit="°C" />
+          </ChartCard>
+        )}
+        {visibleCharts.has('absAngle') && (
+          <ChartCard title="Encoder — Absolute Angle (0–360°)" accent="#a78bfa">
+            <CanvasChart data={h} refData={refH}
+              lines={[{ key: 'as5600_deg', color: '#a78bfa', label: 'AS5600' }, { key: 'mt6701_abs_deg', color: '#818cf8', label: 'MT6701' }]}
+              yDomain={[0, 360]} unit="°" />
+          </ChartCard>
+        )}
+        {visibleCharts.has('relPos') && (
+          <ChartCard title="MT6701 — Relative Position (multi-turn)" accent="#6366f1">
+            <CanvasChart data={h} refData={refH} lines={[{ key: 'mt6701_rel_deg', color: '#6366f1', label: 'Rel deg' }]} unit="°" />
+          </ChartCard>
+        )}
+        {visibleCharts.has('turns') && (
+          <ChartCard title="MT6701 — Completed Turns" accent="#38bdf8">
+            <CanvasChart data={h} refData={refH} lines={[{ key: 'mt6701_turns_f', color: '#38bdf8', label: 'Turns' }]} unit=" rev" />
+          </ChartCard>
+        )}
+        {visibleCharts.has('accel') && (
+          <ChartCard title="Accelerometer" accent="#34d399">
+            <CanvasChart data={h} refData={refH}
+              lines={[{ key: 'ax', color: '#38bdf8', label: 'X' }, { key: 'ay', color: '#818cf8', label: 'Y' }, { key: 'az', color: '#34d399', label: 'Z' }]}
+              yDomain={[-2000, 2000]} unit="mg" />
+          </ChartCard>
+        )}
+        {visibleCharts.has('gyro') && (
+          <ChartCard title="Gyroscope" accent="#f472b6">
+            <CanvasChart data={h} refData={refH}
+              lines={[{ key: 'gx_dps', color: '#f472b6', label: 'X' }, { key: 'gy_dps', color: '#fb923c', label: 'Y' }, { key: 'gz_dps', color: '#facc15', label: 'Z' }]}
+              unit=" dps" height={165} />
+          </ChartCard>
+        )}
+        {visibleCharts.has('rawCount') && (
+          <ChartCard title="MT6701 Raw ABZ Count" accent="#c084fc">
+            <CanvasChart data={h} refData={refH} lines={[{ key: 'mt6701CountRaw', color: '#c084fc', label: 'Count' }]} unit=" cts" />
+          </ChartCard>
+        )}
       </div>
+      )}
     </div>
   )
 }

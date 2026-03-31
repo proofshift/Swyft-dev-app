@@ -213,7 +213,16 @@ function AppSidebar({
 
 /* ─── DevSensor dashboard (top-level) ───────────────────────────────────── */
 function DevSensorDashboard() {
-  const { devSensorStatus: d } = useMotorStore()
+  const { devSensorStatus: d, firmwareVersion, firmwareBuildDate, canStatus, packetCount } = useMotorStore()
+  const connectedAt = useRef(Date.now())
+  const [uptime, setUptime] = useState(0)
+  useEffect(() => {
+    connectedAt.current = Date.now()
+    const id = setInterval(() => setUptime(Math.floor((Date.now() - connectedAt.current) / 1000)), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const fmtUptime = (s: number) => s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s/60)}m ${s%60}s` : `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`
+
   if (!d) return (
     <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
       Waiting for data…
@@ -228,7 +237,35 @@ function DevSensorDashboard() {
     { label: 'MT6701 Turns', value: String(d.mt6701Turns), unit: ' rev', color: '#6366f1', ok: true },
   ]
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 max-w-5xl">
+      {/* Device Details — Phoenix Tuner style */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Cpu className="w-4 h-4 text-sky-400" />
+          <span className="text-sm font-semibold text-white">Device Details</span>
+          <span className="ml-auto flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Connected
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          {[
+            { label: 'Device',      value: 'SWYFT DEV Sensor' },
+            { label: 'Firmware',    value: firmwareVersion    ?? '—' },
+            { label: 'Build Date',  value: firmwareBuildDate  ?? '—' },
+            { label: 'Uptime',      value: fmtUptime(uptime) },
+            { label: 'CAN ID',      value: `${canStatus.deviceNumber} (DEV)` },
+            { label: 'Heartbeat',   value: canStatus.heartbeatValid ? 'Valid' : 'None' },
+            { label: 'Packets Rx',  value: String(packetCount) },
+            { label: 'Faults',      value: d.errFlags ? `0x${d.errFlags.toString(16).toUpperCase().padStart(2,'0')}` : 'None' },
+          ].map(r => (
+            <div key={r.label} className="bg-slate-800/60 rounded-lg px-3 py-2">
+              <div className="text-slate-500 text-[10px] uppercase tracking-wider font-medium mb-0.5">{r.label}</div>
+              <div className="font-mono text-slate-200 font-semibold truncate">{r.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map(c => (
           <div key={c.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700 transition-colors">

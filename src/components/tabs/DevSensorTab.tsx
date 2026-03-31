@@ -1,8 +1,85 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { useMotorStore } from '../../store/motorStore'
 import { useAppContext } from '../../context/AppContext'
-import { Thermometer, Zap, RotateCcw, Activity, AlertCircle, RefreshCw, Target, AlertTriangle } from 'lucide-react'
+import {
+  Thermometer, Zap, RotateCcw, Activity, AlertCircle, RefreshCw,
+  Target, AlertTriangle, Camera, Copy, Download, X, Clock, ChevronDown, ChevronUp,
+} from 'lucide-react'
 import clsx from 'clsx'
+
+/* ── Fault history entry ──────────────────────────────────────────────── */
+interface FaultEntry {
+  ts: number
+  flags: number
+  type: 'raised' | 'cleared'
+}
+
+/* ── Self-test snapshot generator ────────────────────────────────────── */
+function buildSnapshot(d: ReturnType<typeof useMotorStore.getState>['devSensorStatus'],
+  fw: string | null, fwDate: string | null,
+  can: ReturnType<typeof useMotorStore.getState>['canStatus'],
+  encOffset: number
+): string {
+  if (!d) return ''
+  const now   = new Date()
+  const pad   = (n: number, w = 2) => String(n).padStart(w, '0')
+  const ts    = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ` +
+                `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`
+  const hr    = '─'.repeat(44)
+  const r     = (label: string, value: string) => `  ${label.padEnd(18)}: ${value}`
+
+  const adjCount = d.mt6701CountRaw - encOffset
+  const adjTurns = Math.trunc(adjCount / 16384)
+
+  return [
+    'SWYFT DEV Sensor — Self-Test Snapshot',
+    hr,
+    `Captured : ${ts}`,
+    '',
+    '[ FIRMWARE ]',
+    r('Version',    fw      ?? '(unknown)'),
+    r('Build Date', fwDate  ?? '(unknown)'),
+    '',
+    '[ CAN ]',
+    r('Device Type',   `${can.deviceType} (DEV Sensor)`),
+    r('Manufacturer',  `${can.manufacturer} (SWYFT Robotics)`),
+    r('Device Number', String(can.deviceNumber)),
+    r('Heartbeat',     can.heartbeatValid   ? 'VALID'   : 'NONE'),
+    r('Robot Enabled', can.robotEnabled     ? 'YES'     : 'NO'),
+    '',
+    '[ SUPPLY ]',
+    r('Voltage',  `${d.vsen.toFixed(3)} V`),
+    r('Status',   d.vsen > 3 ? 'NOMINAL' : 'LOW VOLTAGE'),
+    '',
+    '[ TEMPERATURE ]',
+    r('Board NTC', `${d.ntc.toFixed(2)} °C`),
+    r('IMU',       `${d.imuTemp.toFixed(2)} °C`),
+    r('Status',    d.ntc < 50 ? 'COOL' : d.ntc < 70 ? 'WARM' : 'HOT'),
+    '',
+    '[ ENCODERS ]',
+    r('AS5600 raw',    `${d.as5600}  →  ${((d.as5600/4096)*360).toFixed(2)}°`),
+    r('MT6701 raw',    `${d.mt6701}  →  ${((d.mt6701/16384)*360).toFixed(2)}°`),
+    r('MT6701 turns',  String(adjTurns)),
+    r('MT6701 count',  `${adjCount} cts${encOffset ? ` (offset ${encOffset})` : ''}`),
+    r('Magnet',        d.magnet ? 'DETECTED' : 'NONE'),
+    '',
+    '[ IMU (LSM6DSO) ]',
+    r('Accel X', `${d.ax.toFixed(1)} mg`),
+    r('Accel Y', `${d.ay.toFixed(1)} mg`),
+    r('Accel Z', `${d.az.toFixed(1)} mg`),
+    r('Gyro X',  `${(d.gx/1000).toFixed(3)} dps`),
+    r('Gyro Y',  `${(d.gy/1000).toFixed(3)} dps`),
+    r('Gyro Z',  `${(d.gz/1000).toFixed(3)} dps`),
+    '',
+    '[ FAULTS ]',
+    r('Error Flags', `0x${d.errFlags.toString(16).padStart(2,'0').toUpperCase()}` +
+      (d.errFlags === 0 ? ' (NONE)' : '')),
+    r('AS5600',   d.errFlags & 0x01 ? 'FAULT' : 'OK'),
+    r('MT6701',   d.errFlags & 0x02 ? 'FAULT' : 'OK'),
+    r('LSM6DSO',  d.errFlags & 0x04 ? 'FAULT' : 'OK'),
+    hr,
+  ].join('\n')
+}
 
 /* ── Circular gauge SVG ───────────────────────────────────────────────── */
 function CircleGauge({ value, max, label, unit, color = '#38bdf8', size = 'md' }: {
@@ -325,8 +402,51 @@ function Card({ title, icon: Icon, color, children, className }: {
 
 /* ── Main tab ─────────────────────────────────────────────────────────── */
 export function DevSensorTab() {
-  const { devSensorStatus: d, firmwareVersion, firmwareBuildDate, encoderZeroOffset, zeroEncoder } = useMotorStore()
+  const { devSensorStatus: d, firmwareVersion, firmwareBuildDate, encoderZeroOffset, zeroEncoder, canStatus } = useMotorStore()
   const { thresholds } = useAppContext()
+
+  /* ── Snapshot modal ───────────────────────────────────────────────── */
+  const [snapshotText, setSnapshotText] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const takeSnapshot = useCallback(() => {
+    const s = useMotorStore.getState()
+    const text = buildSnapshot(s.devSensorStatus, s.firmwareVersion, s.firmwareBuildDate, s.canStatus, s.encoderZeroOffset)
+    setSnapshotText(text)
+  }, [])
+
+  const copySnapshot = async () => {
+    if (!snapshotText) return
+    await navigator.clipboard.writeText(snapshotText)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const downloadSnapshot = () => {
+    if (!snapshotText) return
+    const ts  = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const blob = new Blob([snapshotText], { type: 'text/plain' })
+    const url  = URL.createObjectURL(blob)
+    const a    = Object.assign(document.createElement('a'), { href: url, download: `swyft-snapshot-${ts}.txt` })
+    document.body.appendChild(a); a.click()
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove() }, 200)
+  }
+
+  /* ── Faults history ───────────────────────────────────────────────── */
+  const [faultLog, setFaultLog] = useState<FaultEntry[]>([])
+  const [faultsOpen, setFaultsOpen] = useState(false)
+  const prevFlagsRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!d) return
+    const prev = prevFlagsRef.current
+    if (prev === null) { prevFlagsRef.current = d.errFlags; return }
+    if (prev !== d.errFlags) {
+      const type: FaultEntry['type'] = d.errFlags > 0 ? 'raised' : 'cleared'
+      setFaultLog(log => [{ ts: Date.now(), flags: d.errFlags, type }, ...log.slice(0, 49)])
+      prevFlagsRef.current = d.errFlags
+    }
+  }, [d?.errFlags])
 
   if (!d) {
     return (
@@ -351,8 +471,55 @@ export function DevSensorTab() {
     if (d.vsen   <= thresholds.minVoltage)   alerts.push(`Supply voltage ${d.vsen.toFixed(2)}V ≤ ${thresholds.minVoltage}V`)
   }
 
+  const fmtTime = (ts: number) => {
+    const d = new Date(ts)
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`
+  }
+
   return (
+    <>
+    {/* ── Snapshot modal ──────────────────────────────────────────────── */}
+    {snapshotText && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+        onClick={e => { if (e.target === e.currentTarget) setSnapshotText(null) }}>
+        <div className="w-full max-w-2xl bg-[#080d18] border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 flex-shrink-0">
+            <span className="text-sm font-semibold text-white flex items-center gap-2">
+              <Camera className="w-4 h-4 text-sky-400" /> Self-Test Snapshot
+            </span>
+            <div className="flex items-center gap-2">
+              <button onClick={copySnapshot}
+                className={clsx('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                  copied ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                )}>
+                <Copy className="w-3 h-3" /> {copied ? 'Copied!' : 'Copy'}
+              </button>
+              <button onClick={downloadSnapshot}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-sky-500/15 border-sky-500/30 text-sky-400 hover:bg-sky-500/25 transition-all">
+                <Download className="w-3 h-3" /> Download
+              </button>
+              <button onClick={() => setSnapshotText(null)}
+                className="p-1.5 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <pre className="flex-1 overflow-y-auto p-5 text-[12px] font-mono text-slate-300 leading-relaxed whitespace-pre bg-[#040810]">
+            {snapshotText}
+          </pre>
+        </div>
+      </div>
+    )}
+
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 max-w-5xl">
+
+      {/* Self-test snapshot button */}
+      <div className="xl:col-span-2 flex justify-end">
+        <button onClick={takeSnapshot}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold border bg-sky-500/10 border-sky-500/25 text-sky-400 hover:bg-sky-500/20 transition-all">
+          <Camera className="w-3.5 h-3.5" /> Self-Test Snapshot
+        </button>
+      </div>
 
       {/* Threshold alerts */}
       {alerts.length > 0 && (
@@ -575,8 +742,46 @@ export function DevSensorTab() {
               <span className="font-mono text-slate-400 text-[11px]">{firmwareBuildDate ?? '—'}</span>
             </div>
           </div>
+
+          {/* Faults history */}
+          <div className="pt-1 border-t border-slate-800">
+            <button onClick={() => setFaultsOpen(o => !o)}
+              className="w-full flex items-center justify-between py-1.5 text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors">
+              <span className="flex items-center gap-1.5">
+                <Clock className="w-3 h-3" />
+                Fault History
+                {faultLog.length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400">
+                    {faultLog.length}
+                  </span>
+                )}
+              </span>
+              {faultsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            {faultsOpen && (
+              <div className="mt-1.5 space-y-1 max-h-40 overflow-y-auto">
+                {faultLog.length === 0 ? (
+                  <div className="text-[11px] text-slate-600 py-2 text-center">No faults recorded this session</div>
+                ) : faultLog.map((f, i) => (
+                  <div key={i} className={clsx(
+                    'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] border',
+                    f.type === 'raised'
+                      ? 'bg-red-500/8 border-red-500/15 text-red-400'
+                      : 'bg-emerald-500/8 border-emerald-500/15 text-emerald-400'
+                  )}>
+                    <span className="font-mono text-slate-500 text-[10px] flex-shrink-0">{fmtTime(f.ts)}</span>
+                    <span className="flex-1 font-medium">
+                      {f.type === 'raised' ? '⚠ Fault raised' : '✓ Fault cleared'}
+                    </span>
+                    <span className="font-mono text-[10px]">0x{f.flags.toString(16).padStart(2,'0').toUpperCase()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </Card>
     </div>
+    </>
   )
 }
