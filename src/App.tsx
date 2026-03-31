@@ -307,6 +307,8 @@ function DevSensorDashboard() {
 /* ─── Settings panel ─────────────────────────────────────────────────────── */
 function SettingsPanel({ onClose }: { onClose: () => void }) {
   const { accent, setAccent, theme, setTheme, thresholds, setThresholds, accentCss } = useAppContext()
+  const { connectionState, deviceType } = useMotorStore(s => ({ connectionState: s.connectionState, deviceType: s.deviceType }))
+  const isDevSensorConnected = connectionState === 'connected' && deviceType === 'devsensor'
   return (
     <div className="absolute right-0 top-12 z-50 w-[340px] bg-[#080d18] border border-slate-700/60 rounded-2xl shadow-2xl shadow-black/70 p-5 space-y-5"
       style={{ borderColor: accentCss.hex + '22' }}>
@@ -359,8 +361,8 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* Threshold alerts */}
-      <div>
+      {/* Threshold alerts — only when DEV Sensor is connected */}
+      {isDevSensorConnected ? <div>
         <div className="flex items-center justify-between mb-3">
           <div className="text-[11px] text-slate-500 uppercase tracking-widest font-semibold">Alert Thresholds</div>
           <button onClick={() => setThresholds({ enabled: !thresholds.enabled })}
@@ -392,7 +394,12 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
-      </div>
+      </div> : (
+        <div className="flex items-center gap-2 px-3 py-2.5 bg-slate-800/60 border border-slate-700/50 rounded-xl text-xs text-slate-500">
+          <Signal className="w-3.5 h-3.5 flex-shrink-0" />
+          Alert thresholds available once a DEV Sensor is connected
+        </div>
+      )}
     </div>
   )
 }
