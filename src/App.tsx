@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useMotorStore } from './store/motorStore'
+import { useAppContext, ACCENT_OPTIONS, THEME_OPTIONS, type AccentColor, type Theme } from './context/AppContext'
 import { ControlTab }   from './components/tabs/ControlTab'
 import { CanTab }       from './components/tabs/CanTab'
 import { FirmwareTab }  from './components/tabs/FirmwareTab'
@@ -14,7 +15,8 @@ import {
   Zap, Wifi, WifiOff, Loader2, Radio, Terminal, Cpu, AlertCircle,
   Sliders, Upload, CheckCircle, Usb, Settings, Gauge, TrendingUp,
   BookOpen, LayoutDashboard, ChevronLeft, ChevronRight, ChevronDown,
-  ChevronUp, Activity, Thermometer, Menu, X
+  ChevronUp, Activity, Thermometer, Menu, X, Palette, Signal,
+  AlertTriangle,
 } from 'lucide-react'
 import clsx from 'clsx'
 import swyftLogo from './assets/swyft-logo.png'
@@ -114,7 +116,7 @@ function AppSidebar({
 
   return (
     <aside className={clsx(
-      'flex flex-col bg-[#080d18] border-r border-slate-800/80 transition-all duration-200 flex-shrink-0',
+      'flex flex-col border-r border-slate-800/80 transition-all duration-200 flex-shrink-0 bg-[#080d18]',
       mobile ? 'w-64 h-full' : (collapsed ? 'w-[60px]' : 'w-[210px]')
     )}>
       {/* Logo / header */}
@@ -307,6 +309,81 @@ function DevSensorDashboard() {
   )
 }
 
+/* ─── Settings panel ─────────────────────────────────────────────────────── */
+function SettingsPanel({ onClose }: { onClose: () => void }) {
+  const { accent, setAccent, theme, setTheme, thresholds, setThresholds } = useAppContext()
+  return (
+    <div className="absolute right-0 top-12 z-50 w-72 bg-[#080d18] border border-slate-700/80 rounded-2xl shadow-2xl shadow-black/60 p-4 space-y-5">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-white flex items-center gap-2">
+          <Palette className="w-4 h-4 text-sky-400" /> Appearance & Alerts
+        </span>
+        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+      </div>
+
+      {/* Accent color */}
+      <div>
+        <div className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-2">Accent Color</div>
+        <div className="flex gap-2">
+          {ACCENT_OPTIONS.map(a => (
+            <button key={a.id} onClick={() => setAccent(a.id as AccentColor)}
+              title={a.label}
+              className={clsx('w-8 h-8 rounded-lg border-2 transition-all', accent === a.id ? 'border-white scale-110' : 'border-transparent hover:border-slate-500')}
+              style={{ backgroundColor: a.hex + '33', boxShadow: accent === a.id ? `0 0 8px ${a.hex}66` : 'none' }}>
+              <span className="block w-4 h-4 rounded-full mx-auto" style={{ backgroundColor: a.hex }} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Background theme */}
+      <div>
+        <div className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-2">Background</div>
+        <div className="flex gap-2">
+          {THEME_OPTIONS.map(t => (
+            <button key={t.id} onClick={() => setTheme(t.id as Theme)}
+              className={clsx('flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                theme === t.id ? 'border-slate-400 text-white' : 'border-slate-700 text-slate-500 hover:border-slate-600')}
+              style={{ backgroundColor: t.bg }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Threshold alerts */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs text-slate-500 uppercase tracking-wider font-medium">Alert Thresholds</div>
+          <button onClick={() => setThresholds({ enabled: !thresholds.enabled })}
+            className={clsx('text-xs px-2 py-0.5 rounded-md font-medium border transition-all',
+              thresholds.enabled
+                ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400'
+                : 'bg-slate-800 border-slate-700 text-slate-500'
+            )}>
+            {thresholds.enabled ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div className={clsx('space-y-2 transition-opacity', !thresholds.enabled && 'opacity-40 pointer-events-none')}>
+          {[
+            { label: 'Max Board Temp',  key: 'maxBoardTemp', val: thresholds.maxBoardTemp, unit: '°C', min: 30, max: 120, step: 1 },
+            { label: 'Max IMU Temp',    key: 'maxImuTemp',   val: thresholds.maxImuTemp,   unit: '°C', min: 30, max: 120, step: 1 },
+            { label: 'Min Voltage',     key: 'minVoltage',   val: thresholds.minVoltage,   unit: 'V',  min: 1,  max: 5,   step: 0.1 },
+          ].map(f => (
+            <div key={f.key} className="flex items-center gap-2">
+              <span className="text-xs text-slate-500 w-28 flex-shrink-0">{f.label}</span>
+              <input type="range" min={f.min} max={f.max} step={f.step} value={f.val}
+                onChange={e => setThresholds({ [f.key]: parseFloat(e.target.value) })}
+                className="flex-1 accent-sky-400 h-1.5 rounded-full" />
+              <span className="text-xs font-mono text-slate-300 w-12 text-right">{f.val.toFixed(f.step < 1 ? 1 : 0)}{f.unit}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─── Main App ───────────────────────────────────────────────────────────── */
 export default function App() {
   const [activeTab, setActiveTab]           = useState<TabId>('control')
@@ -315,6 +392,8 @@ export default function App() {
   const [recoverOpen, setRecoverOpen]       = useState(false)
   const [recoverFile, setRecoverFile]       = useState<File | null>(null)
   const [firmwareList, setFirmwareList]     = useState<FwEntry[]>([])
+  const [settingsOpen, setSettingsOpen]     = useState(false)
+  const [packetsPerSec, setPacketsPerSec]   = useState(0)
   const recoverInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -324,8 +403,21 @@ export default function App() {
   const {
     connectionState, status, devSensorStatus, deviceType, connectError,
     connect, autoConnect, disconnect, dfuProgress, dfuError, dfuSupported,
-    autoConnecting, justDisconnected, flashFirmwareFromSerial, flashFirmwareDirect, clearDFU
+    autoConnecting, justDisconnected, flashFirmwareFromSerial, flashFirmwareDirect, clearDFU,
+    packetCount, lastPacketTime,
   } = useMotorStore()
+
+  const { accentCss, themeCss, thresholds } = useAppContext()
+
+  /* packets/sec rolling 1-second count */
+  const prevPktRef = useRef(0)
+  useEffect(() => {
+    const id = setInterval(() => {
+      setPacketsPerSec(packetCount - prevPktRef.current)
+      prevPktRef.current = packetCount
+    }, 1000)
+    return () => clearInterval(id)
+  }, [packetCount])
 
   useEffect(() => { autoConnect() }, [])
 
@@ -356,9 +448,18 @@ export default function App() {
     accent,
   }
 
+  /* threshold alerts for header banner */
+  const threshAlerts: string[] = []
+  if (thresholds.enabled && isConnected && isDevSensor && devSensorStatus) {
+    if (devSensorStatus.ntc    >= thresholds.maxBoardTemp) threshAlerts.push(`Board ${devSensorStatus.ntc.toFixed(1)}°C`)
+    if (devSensorStatus.imuTemp >= thresholds.maxImuTemp)  threshAlerts.push(`IMU ${devSensorStatus.imuTemp.toFixed(1)}°C`)
+    if (devSensorStatus.vsen   <= thresholds.minVoltage)   threshAlerts.push(`${devSensorStatus.vsen.toFixed(2)}V low`)
+  }
+  const hasAlerts = threshAlerts.length > 0
+
   /* ─── Render ──────────────────────────────────────────────────────────── */
   return (
-    <div className="h-screen flex overflow-hidden bg-[#0c1220] text-slate-100">
+    <div className="h-screen flex overflow-hidden text-slate-100" style={{ backgroundColor: themeCss.bg }}>
 
       {/* Desktop sidebar */}
       <div className="hidden md:flex">
@@ -392,8 +493,16 @@ export default function App() {
       {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
+        {/* Alert banner */}
+        {hasAlerts && (
+          <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-red-500/10 border-b border-red-500/20">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-400 animate-pulse flex-shrink-0" />
+            <span className="text-xs font-medium text-red-400">Alert: {threshAlerts.join(' · ')}</span>
+          </div>
+        )}
+
         {/* Top header */}
-        <header className="flex-shrink-0 h-12 bg-[#080d18] border-b border-slate-800/80 flex items-center px-4 gap-3">
+        <header className="relative flex-shrink-0 h-12 border-b border-slate-800/80 flex items-center px-4 gap-3" style={{ backgroundColor: themeCss.sidebar }}>
           {/* Mobile menu button */}
           <button onClick={() => setMobileMenuOpen(true)}
             className="md:hidden w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white transition-colors">
@@ -456,6 +565,18 @@ export default function App() {
             </div>
           )}
 
+          {/* Packets/sec health indicator */}
+          {isConnected && isDevSensor && (
+            <div className={clsx('hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-mono',
+              packetsPerSec > 0
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                : 'bg-slate-800 border-slate-700 text-slate-500'
+            )}>
+              <Signal className="w-3 h-3" />
+              {packetsPerSec > 0 ? `${packetsPerSec} Hz` : lastPacketTime > 0 ? 'stalled' : '—'}
+            </div>
+          )}
+
           {/* Connect / Disconnect */}
           <div className="ml-auto flex items-center gap-2">
             {!isSupported && (
@@ -463,6 +584,18 @@ export default function App() {
                 <AlertCircle className="w-3.5 h-3.5" /> Chrome / Edge required
               </div>
             )}
+            {/* Settings / Appearance */}
+            <button onClick={() => setSettingsOpen(o => !o)}
+              title="Appearance & Alerts"
+              className={clsx('flex items-center justify-center w-8 h-8 rounded-lg border transition-all',
+                settingsOpen
+                  ? 'bg-sky-500/20 border-sky-500/30 text-sky-300'
+                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
+              )}>
+              <Palette className="w-4 h-4" />
+            </button>
+            {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+
             {isSupported && (
               <button onClick={isConnected ? disconnect : handleConnect} disabled={isConnecting}
                 className={clsx(

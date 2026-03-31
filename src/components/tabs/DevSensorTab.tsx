@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { useMotorStore } from '../../store/motorStore'
-import { Thermometer, Zap, RotateCcw, Activity, AlertCircle, RefreshCw } from 'lucide-react'
+import { useAppContext } from '../../context/AppContext'
+import { Thermometer, Zap, RotateCcw, Activity, AlertCircle, RefreshCw, Target, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
 
 /* ── Circular gauge SVG ───────────────────────────────────────────────── */
@@ -324,7 +325,8 @@ function Card({ title, icon: Icon, color, children, className }: {
 
 /* ── Main tab ─────────────────────────────────────────────────────────── */
 export function DevSensorTab() {
-  const { devSensorStatus: d, firmwareVersion, firmwareBuildDate } = useMotorStore()
+  const { devSensorStatus: d, firmwareVersion, firmwareBuildDate, encoderZeroOffset, zeroEncoder } = useMotorStore()
+  const { thresholds } = useAppContext()
 
   if (!d) {
     return (
@@ -337,8 +339,32 @@ export function DevSensorTab() {
     )
   }
 
+  /* apply zero offset to multi-turn count */
+  const adjCountRaw = d.mt6701CountRaw - encoderZeroOffset
+  const adjTurns    = Math.trunc(adjCountRaw / 16384)
+
+  /* threshold alerts */
+  const alerts: string[] = []
+  if (thresholds.enabled) {
+    if (d.ntc    >= thresholds.maxBoardTemp) alerts.push(`Board temp ${d.ntc.toFixed(1)}°C ≥ ${thresholds.maxBoardTemp}°C`)
+    if (d.imuTemp >= thresholds.maxImuTemp)  alerts.push(`IMU temp ${d.imuTemp.toFixed(1)}°C ≥ ${thresholds.maxImuTemp}°C`)
+    if (d.vsen   <= thresholds.minVoltage)   alerts.push(`Supply voltage ${d.vsen.toFixed(2)}V ≤ ${thresholds.minVoltage}V`)
+  }
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 max-w-5xl">
+
+      {/* Threshold alerts */}
+      {alerts.length > 0 && (
+        <div className="xl:col-span-2 flex flex-col gap-1.5">
+          {alerts.map(a => (
+            <div key={a} className="flex items-center gap-2.5 px-4 py-2.5 bg-red-500/10 border border-red-500/30 rounded-xl text-xs font-medium text-red-400">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 animate-pulse" />
+              {a}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Power */}
       <Card title="Supply Voltage" icon={Zap} color="text-amber-400">
@@ -347,14 +373,20 @@ export function DevSensorTab() {
           <div className="space-y-3 flex-1 max-w-xs ml-6">
             <div className="text-xs text-slate-500 uppercase tracking-widest font-medium">Quick Status</div>
             <div className={clsx('flex items-center gap-2 p-2.5 rounded-lg border text-xs font-medium',
-              d.vsen > 3 ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' : 'bg-red-500/10 border-red-500/25 text-red-400'
+              d.vsen > thresholds.minVoltage
+                ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+                : 'bg-red-500/10 border-red-500/25 text-red-400'
             )}>
-              <div className={clsx('w-2 h-2 rounded-full', d.vsen > 3 ? 'bg-emerald-400' : 'bg-red-400 animate-pulse')} />
-              {d.vsen > 3 ? 'Voltage nominal' : 'Low voltage'}
+              <div className={clsx('w-2 h-2 rounded-full', d.vsen > thresholds.minVoltage ? 'bg-emerald-400' : 'bg-red-400 animate-pulse')} />
+              {d.vsen > thresholds.minVoltage ? 'Voltage nominal' : 'Low voltage!'}
             </div>
             <div className="flex justify-between text-xs text-slate-500">
               <span>Raw ADC</span>
               <span className="font-mono text-slate-300">{d.vsen.toFixed(3)} V</span>
+            </div>
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Threshold</span>
+              <span className="font-mono text-slate-500">&gt; {thresholds.minVoltage.toFixed(1)} V</span>
             </div>
             <div className="flex justify-between text-xs text-slate-500">
               <span>Board Temp</span>
@@ -371,16 +403,17 @@ export function DevSensorTab() {
       {/* Temperature */}
       <Card title="Temperature" icon={Thermometer} color="text-orange-400">
         <div className="flex items-center justify-around">
-          <CircleGauge value={d.ntc} max={80} label="Board NTC" unit="°C" color="#fb923c" size="lg" />
-          <CircleGauge value={d.imuTemp} max={80} label="IMU Internal" unit="°C" color="#f97316" size="lg" />
+          <CircleGauge value={d.ntc}     max={Math.max(80, thresholds.maxBoardTemp + 10)} label="Board NTC"    unit="°C" color="#fb923c" size="lg" />
+          <CircleGauge value={d.imuTemp} max={Math.max(80, thresholds.maxImuTemp  + 10)} label="IMU Internal" unit="°C" color="#f97316" size="lg" />
           <div className="flex flex-col gap-2 ml-4">
             <div className={clsx('px-2 py-1 rounded-lg text-xs font-medium border',
-              d.ntc < 50 ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
-              : d.ntc < 70 ? 'bg-amber-500/10 border-amber-500/25 text-amber-400'
+              d.ntc < thresholds.maxBoardTemp * 0.7 ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+              : d.ntc < thresholds.maxBoardTemp      ? 'bg-amber-500/10 border-amber-500/25 text-amber-400'
               : 'bg-red-500/10 border-red-500/25 text-red-400'
             )}>
-              {d.ntc < 50 ? 'Cool' : d.ntc < 70 ? 'Warm' : 'Hot'}
+              {d.ntc < thresholds.maxBoardTemp * 0.7 ? 'Cool' : d.ntc < thresholds.maxBoardTemp ? 'Warm' : 'Hot!'}
             </div>
+            <div className="text-[10px] text-slate-600 text-center">warn &gt; {thresholds.maxBoardTemp}°C</div>
           </div>
         </div>
       </Card>
@@ -411,13 +444,30 @@ export function DevSensorTab() {
 
           {/* Relative multi-turn */}
           <div>
-            <div className="flex items-center gap-1.5 mb-4">
-              <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
-              <div className="text-xs text-slate-500 uppercase tracking-widest font-medium">MT6701 Relative (Multi-Turn)</div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                <div className="text-xs text-slate-500 uppercase tracking-widest font-medium">MT6701 Relative (Multi-Turn)</div>
+              </div>
+              <button
+                onClick={zeroEncoder}
+                title="Zero the encoder at current position"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border bg-indigo-500/10 border-indigo-500/25 text-indigo-400 hover:bg-indigo-500/20 transition-all">
+                <Target className="w-3 h-3" /> Zero
+              </button>
             </div>
+            {encoderZeroOffset !== 0 && (
+              <div className="mb-3 flex items-center gap-2 px-2.5 py-1.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-[11px] text-indigo-400">
+                <Target className="w-3 h-3 flex-shrink-0" />
+                Zeroed at count {encoderZeroOffset}
+                <button onClick={() => useMotorStore.setState({ encoderZeroOffset: 0 })} className="ml-auto text-indigo-600 hover:text-indigo-400 transition-colors text-[10px]">
+                  clear
+                </button>
+              </div>
+            )}
             <RelativeEncoderDisplay
-              countRaw={d.mt6701CountRaw}
-              turns={d.mt6701Turns}
+              countRaw={adjCountRaw}
+              turns={adjTurns}
               angle={d.mt6701 / 16384 * 360}
             />
           </div>

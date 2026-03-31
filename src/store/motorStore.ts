@@ -200,6 +200,14 @@ interface MotorStore {
  /** True briefly after an unexpected disconnect (shows disconnected screen) */
  justDisconnected: boolean
 
+ /** Connection health — incremented every DEV sensor packet */
+ packetCount: number
+ /** Timestamp (ms) of the last received DEV sensor packet */
+ lastPacketTime: number
+
+ /** Client-side zero offset for MT6701 multi-turn count */
+ encoderZeroOffset: number
+
  connect: () => Promise<void>
  /** Try to connect to a previously-permitted port silently (no dialog). */
  autoConnect: (port?: SerialPort) => Promise<void>
@@ -207,6 +215,9 @@ interface MotorStore {
  send: (cmd: string) => Promise<void>
  clearLog: () => void
  loadConfig: () => Promise<void>
+
+ /** Zero the encoder — stores current mt6701CountRaw as the offset */
+ zeroEncoder: () => void
 
  /** Send DFU command via serial, then flash the file via WebUSB */
  flashFirmwareFromSerial: (file: File) => Promise<void>
@@ -281,9 +292,14 @@ function _makeConn(set: (partial: Partial<MotorStore> | ((s: MotorStore) => Part
       if (isDevSensorLine(line)) {
         const ds = parseDevSensorStatus(line)
         if (ds) {
-          set(s => ({ devSensorStatus: ds, deviceType: s.deviceType ?? 'devsensor' }))
-          // Add a log entry ~once per second so the Log tab shows live data
           const now = Date.now()
+          set(s => ({
+            devSensorStatus: ds,
+            deviceType: s.deviceType ?? 'devsensor',
+            packetCount: s.packetCount + 1,
+            lastPacketTime: now,
+          }))
+          // Add a log entry ~once per second so the Log tab shows live data
           if (now - _lastDevSensorLog >= 1000) {
             _lastDevSensorLog = now
             const entry = `[DEV] ${ds.vsen.toFixed(2)}V  ${ds.ntc.toFixed(1)}°C  AS5600:${ds.as5600}  MT6701:${ds.mt6701}  ax:${ds.ax.toFixed(0)} ay:${ds.ay.toFixed(0)} az:${ds.az.toFixed(0)}  mag:${ds.magnet ? 'YES' : 'no'}  err:0x${ds.errFlags.toString(16).padStart(2,'0')}`
@@ -450,6 +466,9 @@ export const useMotorStore = create<MotorStore>((set, get) => ({
  dfuSupported: isDFUSupported(),
  autoConnecting: false,
  justDisconnected: false,
+ packetCount: 0,
+ lastPacketTime: 0,
+ encoderZeroOffset: 0,
 
  connect: async () => {
     set({ connectionState: 'connecting', connectError: null })
@@ -493,7 +512,12 @@ export const useMotorStore = create<MotorStore>((set, get) => ({
  disconnect: async () => {
  setQueueConnection(null)
  await get().conn?.disconnect()
- set({ conn: null, status: null, statusHistory: [], devSensorStatus: null, deviceType: null, firmwareVersion: null, firmwareBuildDate: null, config: null, justDisconnected: false })
+ set({ conn: null, status: null, statusHistory: [], devSensorStatus: null, deviceType: null, firmwareVersion: null, firmwareBuildDate: null, config: null, justDisconnected: false, packetCount: 0, lastPacketTime: 0 })
+ },
+
+ zeroEncoder: () => {
+   const ds = get().devSensorStatus
+   if (ds) set({ encoderZeroOffset: ds.mt6701CountRaw })
  },
 
   loadConfig: async () => {
