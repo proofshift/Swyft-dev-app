@@ -49,34 +49,33 @@ const isSupported = SerialConnection.isSupported()
 interface FwEntry { id: string; name: string; file: string; version: string; date: string }
 
 /* ─── NavItem (top-level, stable reference) ──────────────────────────────── */
-function NavItem({ label, icon: Icon, active, onClick, collapsed, accent }: {
+function NavItem({ label, icon: Icon, active, onClick, collapsed }: {
   label: string; icon: React.ElementType; active: boolean
-  onClick: () => void; collapsed: boolean; accent: 'sky' | 'purple'
+  onClick: () => void; collapsed: boolean
 }) {
+  const { accentCss } = useAppContext()
+  const hex = accentCss.hex
   return (
     <button
       onClick={onClick}
       title={collapsed ? label : undefined}
       className={clsx(
-        'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group relative',
-        active
-          ? accent === 'purple'
-            ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
-            : 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
-          : 'text-slate-400 hover:text-slate-100 hover:bg-white/5 border border-transparent'
+        'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group relative border',
+        active ? 'border-white/10' : 'border-transparent text-slate-400 hover:text-slate-100 hover:bg-white/5'
       )}
+      style={active ? { backgroundColor: hex + '22', color: hex + 'dd', borderColor: hex + '44' } : undefined}
     >
       <Icon className={clsx(
         'flex-shrink-0 transition-colors',
         collapsed ? 'w-5 h-5 mx-auto' : 'w-4 h-4',
-        active ? (accent === 'purple' ? 'text-purple-400' : 'text-sky-400') : 'text-slate-500 group-hover:text-slate-300'
-      )} />
+        !active && 'text-slate-500 group-hover:text-slate-300'
+      )}
+        style={active ? { color: hex } : undefined}
+      />
       {!collapsed && <span className="truncate">{label}</span>}
       {active && (
-        <span className={clsx(
-          'absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r',
-          accent === 'purple' ? 'bg-purple-400' : 'bg-sky-400'
-        )} />
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r"
+          style={{ backgroundColor: hex }} />
       )}
     </button>
   )
@@ -101,7 +100,8 @@ function AppSidebar({
   mobile?: boolean
   onCloseMobile?: () => void
 }) {
-  const accent: 'sky' | 'purple' = isDevSensor ? 'purple' : 'sky'
+  const { accentCss, themeCss } = useAppContext()
+  const hex = accentCss.hex
   const isExpanded = mobile || !collapsed
 
   const handleSelect = (id: string) => {
@@ -128,7 +128,7 @@ function AppSidebar({
         {isExpanded && (
           <div className="leading-none min-w-0 flex-1">
             <div className="text-white font-bold text-[15px] tracking-tight">SWYFT</div>
-            <div className="text-sky-400 text-[11px] font-semibold tracking-widest uppercase">Link</div>
+            <div className="text-[11px] font-semibold tracking-widest uppercase" style={{ color: hex }}>Link</div>
           </div>
         )}
         {!mobile && (
@@ -160,7 +160,6 @@ function AppSidebar({
                 active={activeTab === t.id}
                 onClick={() => handleSelect(t.id)}
                 collapsed={!isExpanded}
-                accent={accent}
               />
             ))}
           </>
@@ -178,7 +177,6 @@ function AppSidebar({
             active={activeTab === t.id}
             onClick={() => handleSelect(t.id)}
             collapsed={!isExpanded}
-            accent={accent}
           />
         ))}
       </nav>
@@ -186,17 +184,11 @@ function AppSidebar({
       {/* Connection status chip */}
       <div className="border-t border-slate-800/80 p-2 flex-shrink-0">
         {isConnected ? (
-          <div className={clsx(
-            'rounded-lg p-2 flex items-center gap-2',
-            isDevSensor ? 'bg-purple-500/10' : 'bg-sky-500/10'
-          )}>
-            <div className={clsx(
-              'w-2 h-2 rounded-full flex-shrink-0 animate-pulse',
-              isDevSensor ? 'bg-purple-400' : 'bg-sky-400'
-            )} />
+          <div className="rounded-lg p-2 flex items-center gap-2" style={{ backgroundColor: hex + '18' }}>
+            <div className="w-2 h-2 rounded-full flex-shrink-0 animate-pulse" style={{ backgroundColor: hex }} />
             {isExpanded && (
               <div className="min-w-0 flex-1">
-                <div className={clsx('text-xs font-semibold truncate', isDevSensor ? 'text-purple-300' : 'text-sky-300')}>
+                <div className="text-xs font-semibold truncate" style={{ color: hex + 'cc' }}>
                   {isDevSensor ? 'DEV Sensor' : 'Thunder'}
                 </div>
                 <div className="text-[10px] text-slate-500 truncate">Connected</div>
@@ -515,7 +507,7 @@ export default function App() {
             {isConnected && (
               <>
                 <span className="hidden sm:inline">/</span>
-                <span className={clsx('font-semibold', isDevSensor ? 'text-purple-400' : 'text-sky-400')}>
+                <span className="font-semibold hidden sm:inline" style={{ color: accentCss.hex }}>
                   {isDevSensor ? 'DEV Sensor' : 'Thunder'}
                 </span>
                 <span>/</span>
@@ -559,9 +551,10 @@ export default function App() {
             </div>
           )}
           {isConnecting && (
-            <div className="flex items-center gap-1.5 px-2 py-1 bg-sky-500/10 border border-sky-500/20 rounded-lg ml-2">
-              <Loader2 className="w-3 h-3 text-sky-400 animate-spin" />
-              <span className="text-xs text-sky-400">Connecting…</span>
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg ml-2 border"
+              style={{ backgroundColor: accentCss.hex + '18', borderColor: accentCss.hex + '33', color: accentCss.hex }}>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              <span className="text-xs">Connecting…</span>
             </div>
           )}
 
@@ -602,9 +595,14 @@ export default function App() {
                   'flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all border',
                   isConnected
                     ? 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20'
-                    : 'bg-sky-500 border-sky-400/50 text-white hover:bg-sky-400 shadow-lg shadow-sky-500/20',
+                    : 'text-white shadow-lg',
                   isConnecting && 'opacity-60 cursor-not-allowed'
-                )}>
+                )}
+                style={!isConnected ? {
+                  backgroundColor: accentCss.hex,
+                  borderColor: accentCss.hex + '80',
+                  boxShadow: `0 4px 14px ${accentCss.hex}33`,
+                } : undefined}>
                 {isConnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   : isConnected ? <WifiOff className="w-3.5 h-3.5" />
                   : <Wifi className="w-3.5 h-3.5" />}
