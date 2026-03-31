@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import swyftLogo from '../../assets/swyft-logo.png'
 import {
   BookOpen, Zap, Activity, Cpu, Terminal, AlertCircle,
   CheckCircle, ChevronRight, ExternalLink, Info, Radio,
@@ -716,7 +717,7 @@ export function DocsTab() {
       <div className="flex-1 min-w-0 max-w-3xl">
         {/* SWYFT header banner */}
         <div className="bg-gradient-to-r from-sky-500/10 via-indigo-500/5 to-transparent border border-sky-500/15 rounded-2xl p-5 mb-6 flex items-center gap-4">
-          <img src="./swyft-logo.png" alt="SWYFT" className="w-10 h-10 flex-shrink-0" />
+          <img src={swyftLogo} alt="SWYFT" className="w-10 h-10 flex-shrink-0" />
           <div>
             <div className="text-lg font-bold text-white tracking-tight">SWYFT Link Documentation</div>
             <div className="text-xs text-slate-400 mt-0.5">
