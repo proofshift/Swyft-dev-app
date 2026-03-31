@@ -8,17 +8,19 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.469.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zustand": "^4.5.5",
     "recharts": "^2.12.7",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.469.0"
+    "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.30.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@typescript-eslint/eslint-plugin": "^8.18.1",
@@ -32,6 +34,7 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.6.3",
     "vite": "^6.0.5",
-    "vite-plugin-pwa": "^0.21.1"
+    "vite-plugin-pwa": "^0.21.1",
+    "wrangler": "^4.78.0"
   }
 }
