@@ -74,9 +74,9 @@ export function DevConfigTab() {
     for (let i = 1; i <= 5; i++) {
       setIdentifyFlash(i)
       await send('LED 255 255 255')   // white full brightness
-      await delay(200)
+      await delay(400)
       await send('LED 0 0 0')         // off
-      await delay(200)
+      await delay(300)
     }
     setIdentifyFlash(0)
     setIdentifyState('idle')

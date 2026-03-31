@@ -391,9 +391,9 @@ export function ConfigTab() {
     for (let i = 1; i <= 5; i++) {
       setIdentifyFlash(i)
       await send('LED 255 255 255')
-      await delay(200)
+      await delay(400)
       await send('LED 0 0 0')
-      await delay(200)
+      await delay(300)
     }
     setIdentifyFlash(0)
     setIdentifyState('idle')
