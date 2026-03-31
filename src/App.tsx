@@ -121,7 +121,7 @@ function AppSidebar({
         'flex items-center border-b border-slate-800/80 flex-shrink-0',
         isExpanded ? 'gap-3 px-4 py-4' : 'justify-center px-2 py-4'
       )}>
-        <img src="/swyft-logo.png" alt="SWYFT" className="w-8 h-8 flex-shrink-0 rounded-md object-cover" />
+        <img src="./swyft-logo.png" alt="SWYFT" className="w-8 h-8 flex-shrink-0 rounded-md object-cover" />
         {isExpanded && (
           <div className="leading-none min-w-0 flex-1">
             <div className="text-white font-bold text-[15px] tracking-tight">SWYFT</div>
@@ -590,7 +590,7 @@ export default function App() {
                 <div className="text-center pt-8 pb-6">
                   <div className="relative inline-block mb-6">
                     <div className="w-28 h-28 rounded-2xl overflow-hidden flex items-center justify-center mx-auto shadow-2xl shadow-sky-500/10 border border-slate-700/60">
-                      <img src="/swyft-logo.png" alt="SWYFT" className="w-full h-full object-cover" />
+                      <img src="./swyft-logo.png" alt="SWYFT" className="w-full h-full object-cover" />
                     </div>
                     <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center">
                       <Usb className="w-4 h-4 text-slate-400" />

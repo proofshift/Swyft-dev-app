@@ -10,7 +10,7 @@ export function AboutTab() {
       {/* Branding hero */}
       <div className="bg-gradient-to-br from-sky-500/10 via-slate-900 to-slate-900 border border-sky-500/20 rounded-2xl p-6">
         <div className="flex items-center gap-5">
-          <img src="/swyft-logo.png" alt="SWYFT" className="w-16 h-16 flex-shrink-0 rounded-xl object-cover" />
+          <img src="./swyft-logo.png" alt="SWYFT" className="w-16 h-16 flex-shrink-0 rounded-xl object-cover" />
           <div>
             <h1 className="text-2xl font-bold text-white tracking-tight">SWYFT Link</h1>
             <p className="text-slate-400 text-sm mt-1 leading-relaxed">
