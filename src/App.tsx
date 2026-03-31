@@ -9,6 +9,7 @@ import { InputTab }     from './components/tabs/InputTab'
 import { ConfigTab }    from './components/tabs/ConfigTab'
 import { DevSensorTab } from './components/tabs/DevSensorTab'
 import { DevGraphsTab } from './components/tabs/DevGraphsTab'
+import { DevCanTab }    from './components/tabs/DevCanTab'
 import { DocsTab }      from './components/tabs/DocsTab'
 import { SerialConnection } from './api/SerialConnection'
 import {
@@ -36,6 +37,7 @@ const DEVSENSOR_TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, group: 'device' },
   { id: 'sensors',   label: 'Sensors',   icon: Gauge,           group: 'device' },
   { id: 'graphs',    label: 'Graphs',    icon: TrendingUp,      group: 'device' },
+  { id: 'can',       label: 'CAN Bus',   icon: Radio,           group: 'device' },
   { id: 'firmware',  label: 'Firmware',  icon: Cpu,             group: 'system' },
   { id: 'log',       label: 'Console',   icon: Terminal,        group: 'system' },
   { id: 'docs',      label: 'Docs',      icon: BookOpen,        group: 'system' },
@@ -915,6 +917,7 @@ export default function App() {
               {isDevSensor && activeTab === 'dashboard' && <DevSensorDashboard />}
               {isDevSensor && activeTab === 'sensors'   && <DevSensorTab />}
               {isDevSensor && activeTab === 'graphs'    && <DevGraphsTab />}
+              {isDevSensor && activeTab === 'can'       && <DevCanTab />}
               {isDevSensor && activeTab === 'firmware'  && <FirmwareTab />}
               {isDevSensor && activeTab === 'log'       && <LogTab />}
               {activeTab === 'docs' && <DocsTab />}
