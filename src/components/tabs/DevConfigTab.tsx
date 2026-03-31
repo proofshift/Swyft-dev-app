@@ -67,10 +67,19 @@ export function DevConfigTab() {
 
   /* ── Identify ───────────────────────────────────────────────────── */
   const [identifyState, setIdentifyState] = useState<'idle'|'blinking'>('idle')
+  const [identifyFlash, setIdentifyFlash] = useState(0) // 1-5 counter for UI feedback
   const handleIdentify = async () => {
     setIdentifyState('blinking')
-    await send('IDENTIFY')
-    setTimeout(() => setIdentifyState('idle'), 3000)
+    const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+    for (let i = 1; i <= 5; i++) {
+      setIdentifyFlash(i)
+      await send('LED 255 255 255')   // white full brightness
+      await delay(200)
+      await send('LED 0 0 0')         // off
+      await delay(200)
+    }
+    setIdentifyFlash(0)
+    setIdentifyState('idle')
   }
 
   /* ── CAN ID apply ───────────────────────────────────────────────── */
@@ -195,14 +204,16 @@ export function DevConfigTab() {
       {/* ── Top action bar ───────────────────────────────────────────── */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* Identify */}
-        <button onClick={handleIdentify}
+        <button onClick={handleIdentify} disabled={identifyState === 'blinking'}
           className={clsx('flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all',
             identifyState === 'blinking'
-              ? 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300 animate-pulse cursor-wait'
+              ? 'bg-white/10 border-white/30 text-white cursor-wait'
               : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-yellow-300 hover:border-yellow-500/40'
           )}>
-          <Lightbulb className="w-4 h-4" />
-          {identifyState === 'blinking' ? 'Blinking LED…' : 'Identify Device'}
+          <Lightbulb className={clsx('w-4 h-4 transition-all', identifyFlash > 0 ? 'text-white drop-shadow-[0_0_6px_white]' : '')} />
+          {identifyState === 'blinking'
+            ? `Flash ${identifyFlash} / 5…`
+            : 'Identify Device'}
         </button>
 
         <button onClick={handleBackup}

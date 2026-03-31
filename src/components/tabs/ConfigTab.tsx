@@ -358,6 +358,7 @@ export function ConfigTab() {
   const [factoryConfirm, setFactoryConfirm] = useState(false)
   const [clearState, setClearState]     = useState<'idle'|'ok'>('idle')
   const [identifyState, setIdentifyState] = useState<'idle'|'blinking'>('idle')
+  const [identifyFlash, setIdentifyFlash] = useState(0)
   const [search, setSearch]             = useState('')
 
   useEffect(() => { loadConfig() }, [])
@@ -386,8 +387,16 @@ export function ConfigTab() {
 
   const handleIdentify = async () => {
     setIdentifyState('blinking')
-    await send('IDENTIFY')
-    setTimeout(() => setIdentifyState('idle'), 3000)
+    const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+    for (let i = 1; i <= 5; i++) {
+      setIdentifyFlash(i)
+      await send('LED 255 255 255')
+      await delay(200)
+      await send('LED 0 0 0')
+      await delay(200)
+    }
+    setIdentifyFlash(0)
+    setIdentifyState('idle')
   }
 
   const c = config as MotorConfig | null
@@ -456,14 +465,14 @@ export function ConfigTab() {
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* Identify */}
-        <button onClick={handleIdentify}
+        <button onClick={handleIdentify} disabled={identifyState === 'blinking'}
           className={clsx('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
             identifyState === 'blinking'
-              ? 'bg-yellow-500/20 border-yellow-500/40 text-yellow-300 animate-pulse cursor-wait'
+              ? 'bg-white/10 border-white/30 text-white cursor-wait'
               : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-yellow-300 hover:border-yellow-500/30'
           )}>
-          <Lightbulb className="w-3.5 h-3.5" />
-          {identifyState === 'blinking' ? 'Blinking…' : 'Identify'}
+          <Lightbulb className={clsx('w-3.5 h-3.5', identifyFlash > 0 ? 'text-white drop-shadow-[0_0_6px_white]' : '')} />
+          {identifyState === 'blinking' ? `Flash ${identifyFlash}/5…` : 'Identify'}
         </button>
 
         <button onClick={loadConfig}
