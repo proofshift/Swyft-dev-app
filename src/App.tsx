@@ -303,26 +303,36 @@ function DevSensorDashboard() {
 
 /* ─── Settings panel ─────────────────────────────────────────────────────── */
 function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const { accent, setAccent, theme, setTheme, thresholds, setThresholds } = useAppContext()
+  const { accent, setAccent, theme, setTheme, thresholds, setThresholds, accentCss } = useAppContext()
   return (
-    <div className="absolute right-0 top-12 z-50 w-72 bg-[#080d18] border border-slate-700/80 rounded-2xl shadow-2xl shadow-black/60 p-4 space-y-5">
+    <div className="absolute right-0 top-12 z-50 w-[340px] bg-[#080d18] border border-slate-700/60 rounded-2xl shadow-2xl shadow-black/70 p-5 space-y-5"
+      style={{ borderColor: accentCss.hex + '22' }}>
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-white flex items-center gap-2">
-          <Palette className="w-4 h-4 text-sky-400" /> Appearance & Alerts
+          <Palette className="w-4 h-4" style={{ color: accentCss.hex }} /> Appearance &amp; Alerts
         </span>
-        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+        <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1 rounded-md hover:bg-white/5">
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Accent color */}
       <div>
-        <div className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-2">Accent Color</div>
-        <div className="flex gap-2">
+        <div className="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mb-3">Accent Color</div>
+        <div className="flex gap-2.5">
           {ACCENT_OPTIONS.map(a => (
             <button key={a.id} onClick={() => setAccent(a.id as AccentColor)}
               title={a.label}
-              className={clsx('w-8 h-8 rounded-lg border-2 transition-all', accent === a.id ? 'border-white scale-110' : 'border-transparent hover:border-slate-500')}
-              style={{ backgroundColor: a.hex + '33', boxShadow: accent === a.id ? `0 0 8px ${a.hex}66` : 'none' }}>
-              <span className="block w-4 h-4 rounded-full mx-auto" style={{ backgroundColor: a.hex }} />
+              className="relative flex flex-col items-center gap-1.5 group">
+              <span className={clsx('w-9 h-9 rounded-xl border-2 flex items-center justify-center transition-all',
+                accent === a.id ? 'border-white scale-105' : 'border-transparent hover:border-slate-500'
+              )}
+                style={{ backgroundColor: a.hex + '28', boxShadow: accent === a.id ? `0 0 10px ${a.hex}55` : 'none' }}>
+                <span className="w-4 h-4 rounded-full" style={{ backgroundColor: a.hex }} />
+              </span>
+              <span className={clsx('text-[10px] font-medium transition-colors',
+                accent === a.id ? 'text-white' : 'text-slate-600 group-hover:text-slate-400'
+              )}>{a.label}</span>
             </button>
           ))}
         </div>
@@ -330,12 +340,15 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 
       {/* Background theme */}
       <div>
-        <div className="text-xs text-slate-500 uppercase tracking-wider font-medium mb-2">Background</div>
+        <div className="text-[11px] text-slate-500 uppercase tracking-widest font-semibold mb-3">Background</div>
         <div className="flex gap-2">
           {THEME_OPTIONS.map(t => (
             <button key={t.id} onClick={() => setTheme(t.id as Theme)}
-              className={clsx('flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all',
-                theme === t.id ? 'border-slate-400 text-white' : 'border-slate-700 text-slate-500 hover:border-slate-600')}
+              className={clsx('flex-1 py-2 rounded-xl text-xs font-semibold border transition-all',
+                theme === t.id
+                  ? 'text-white border-slate-400'
+                  : 'text-slate-500 border-slate-700/60 hover:border-slate-600 hover:text-slate-300'
+              )}
               style={{ backgroundColor: t.bg }}>
               {t.label}
             </button>
@@ -345,29 +358,34 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 
       {/* Threshold alerts */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-xs text-slate-500 uppercase tracking-wider font-medium">Alert Thresholds</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-[11px] text-slate-500 uppercase tracking-widest font-semibold">Alert Thresholds</div>
           <button onClick={() => setThresholds({ enabled: !thresholds.enabled })}
-            className={clsx('text-xs px-2 py-0.5 rounded-md font-medium border transition-all',
+            className={clsx('text-xs px-2.5 py-1 rounded-lg font-semibold border transition-all',
               thresholds.enabled
-                ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400'
-                : 'bg-slate-800 border-slate-700 text-slate-500'
+                ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/25'
+                : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
             )}>
-            {thresholds.enabled ? 'On' : 'Off'}
+            {thresholds.enabled ? '● On' : '○ Off'}
           </button>
         </div>
-        <div className={clsx('space-y-2 transition-opacity', !thresholds.enabled && 'opacity-40 pointer-events-none')}>
+        <div className={clsx('space-y-3 transition-opacity', !thresholds.enabled && 'opacity-40 pointer-events-none')}>
           {[
-            { label: 'Max Board Temp',  key: 'maxBoardTemp', val: thresholds.maxBoardTemp, unit: '°C', min: 30, max: 120, step: 1 },
-            { label: 'Max IMU Temp',    key: 'maxImuTemp',   val: thresholds.maxImuTemp,   unit: '°C', min: 30, max: 120, step: 1 },
-            { label: 'Min Voltage',     key: 'minVoltage',   val: thresholds.minVoltage,   unit: 'V',  min: 1,  max: 5,   step: 0.1 },
+            { label: 'Board Temp max', key: 'maxBoardTemp', val: thresholds.maxBoardTemp, unit: '°C', min: 30, max: 120, step: 1 },
+            { label: 'IMU Temp max',   key: 'maxImuTemp',   val: thresholds.maxImuTemp,   unit: '°C', min: 30, max: 120, step: 1 },
+            { label: 'Voltage min',    key: 'minVoltage',   val: thresholds.minVoltage,   unit: 'V',  min: 1,  max: 5,   step: 0.1 },
           ].map(f => (
-            <div key={f.key} className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 w-28 flex-shrink-0">{f.label}</span>
+            <div key={f.key}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-slate-400 font-medium">{f.label}</span>
+                <span className="text-sm font-bold font-mono text-white bg-slate-800 px-2 py-0.5 rounded-md min-w-[56px] text-center">
+                  {f.val.toFixed(f.step < 1 ? 1 : 0)}<span className="text-slate-400 text-xs font-normal">{f.unit}</span>
+                </span>
+              </div>
               <input type="range" min={f.min} max={f.max} step={f.step} value={f.val}
                 onChange={e => setThresholds({ [f.key]: parseFloat(e.target.value) })}
-                className="flex-1 accent-sky-400 h-1.5 rounded-full" />
-              <span className="text-xs font-mono text-slate-300 w-12 text-right">{f.val.toFixed(f.step < 1 ? 1 : 0)}{f.unit}</span>
+                className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                style={{ accentColor: accentCss.hex }} />
             </div>
           ))}
         </div>
